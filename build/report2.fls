@@ -1,7 +1,7 @@
-PWD /Users/nothottryhard/projects/MSU-skipods
+PWD /Users/nothottryhard/projects/MSU-high-perf-computing
 INPUT /opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/web2c/texmf.cnf
 INPUT /opt/homebrew/Cellar/texlive/20250308_1/share/texmf-var/web2c/pdftex/pdflatex.fmt
-INPUT /Users/nothottryhard/projects/MSU-skipods/report2.tex
+INPUT /Users/nothottryhard/projects/MSU-high-perf-computing/report2.tex
 OUTPUT build/report2.log
 INPUT /opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/tex/latex/base/article.cls
 INPUT /opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/tex/latex/base/article.cls

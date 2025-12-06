@@ -1,6 +1,15 @@
-*.i
-*.ii
-*.gpu
-*.ptx
-*.cubin
-*.fatbin
+*.csv
+
+# нахер логи хз (эз лайнус торвальд сэд фак нвидиа)
+/log1/
+/log2/
+/log3/
+/log4/
+*.out
+*.err
+
+# другие ненужные файлы
+commands.txt
+/venv/
+/build/
+/pycache/

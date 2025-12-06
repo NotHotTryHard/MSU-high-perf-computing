@@ -1,5 +1,5 @@
 # Fdb version 4
-["pdflatex"] 1764374975.75336 "/Users/nothottryhard/projects/MSU-skipods/report2.tex" "build/report2.pdf" "report2" 1764374976.85319 2
+["pdflatex"] 1765061942.65137 "/Users/nothottryhard/projects/MSU-high-perf-computing/report2.tex" "build/report2.pdf" "report2" 1765061943.78274 2
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx1200.tfm" 1759015855.50503 3308 eee81981029f67083258db36df06e523 ""
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx1440.tfm" 1759015852.71984 3304 6a543c07045572737981351171e0505e ""
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx1728.tfm" 1764366357.30988 3312 d199be9bd555944e2403193d58a0256a ""
@@ -16,7 +16,7 @@
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/lati1440.tfm" 1764366354.3969 3528 460e6901416a816cf4afa844b5d54101 ""
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/latt0800.tfm" 1764374975.16057 1272 2a21550efcb075c108e98819097de5c8 ""
   "/Users/nothottryhard/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/latt1200.tfm" 1762708858.19265 1272 bf3bb5cc29880b269c8bcb412a1ac6e2 ""
-  "/Users/nothottryhard/projects/MSU-skipods/report2.tex" 1764374972.73553 25893 615d674a7aa4e64812198877b6c4601a ""
+  "/Users/nothottryhard/projects/MSU-high-perf-computing/report2.tex" 1764374972.73553 25893 615d674a7aa4e64812198877b6c4601a ""
   "/opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t2a.enc" 1741388039 3141 82d5616418ed8d5de703b3951bedecb4 ""
   "/opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1741388039 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/fonts/map/fontname/texfonts.map" 1741388039 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -262,9 +262,9 @@
   "/opt/homebrew/Cellar/texlive/20250308_1/share/texmf-dist/web2c/texmf.cnf" 1741388039 42151 79f67285bdd95beca4d137b380b4b9e5 ""
   "/opt/homebrew/Cellar/texlive/20250308_1/share/texmf-var/web2c/pdftex/pdflatex.fmt" 1741388039 3346141 1288109d02d1c772df65535881471649 ""
   "build/msu.eps" 0 -1 0 ""
-  "build/report2.aux" 1764374976.63717 7538 0fc5d9a22ff83d8c5a001163abaf6e2a "pdflatex"
-  "build/report2.out" 1764374976.63829 3535 b50c3ce121f9331352ae54fc40c29163 "pdflatex"
-  "build/report2.toc" 1764374976.63847 1808 fbfcc2b72a9ee5892e7e84653586257c "pdflatex"
+  "build/report2.aux" 1765061943.55458 7538 0fc5d9a22ff83d8c5a001163abaf6e2a "pdflatex"
+  "build/report2.out" 1765061943.55568 3535 b50c3ce121f9331352ae54fc40c29163 "pdflatex"
+  "build/report2.toc" 1765061943.55587 1808 fbfcc2b72a9ee5892e7e84653586257c "pdflatex"
   "build/scaling_400x600.png" 0 -1 0 ""
   "build/scaling_800x1200.png" 0 -1 0 ""
   "build/scaling_part3_40x40.png" 0 -1 0 ""
