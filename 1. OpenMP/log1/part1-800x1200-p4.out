@@ -1,0 +1,339 @@
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346344: <sol1_p4_800x1200_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p4_800x1200_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:50:30 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:50:41 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 17:50:41 2025
+Terminated at Sun Nov 23 17:51:06 2025
+Results reported at Sun Nov 23 17:51:06 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p4_800x1200_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-800x1200-p4.out
+#BSUB -e ./log/part1-800x1200-p4.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=4 ./sol1 800 1200
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   85.94 sec.
+    Max Memory :                                 72 MB
+    Average Memory :                             60.67 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                8
+    Run time :                                   25 sec.
+    Turnaround time :                            36 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=25.88824662  |r|=19556.91315
+iter=    50  |r|/|b|=83.19037695  |r|=62845.00456
+iter=   100  |r|/|b|=97.74530002  |r|=73840.31725
+iter=   150  |r|/|b|=83.85699422  |r|=63348.59124
+iter=   200  |r|/|b|=83.18188045  |r|=62838.586
+iter=   250  |r|/|b|=84.42669606  |r|=63778.96451
+iter=   300  |r|/|b|=75.26464992  |r|=56857.62514
+iter=   350  |r|/|b|=55.72823694  |r|=42099.11571
+iter=   400  |r|/|b|=36.67875471  |r|=27708.45129
+iter=   450  |r|/|b|=23.26152422  |r|=17572.59252
+iter=   500  |r|/|b|=15.7677195  |r|=11911.50275
+iter=   550  |r|/|b|=9.256124168  |r|=6992.409302
+iter=   600  |r|/|b|=5.123408752  |r|=3870.40735
+iter=   650  |r|/|b|=2.477134447  |r|=1871.316507
+iter=   700  |r|/|b|=1.798209933  |r|=1358.432496
+iter=   750  |r|/|b|=1.601569937  |r|=1209.883567
+iter=   800  |r|/|b|=1.666521785  |r|=1258.95053
+iter=   850  |r|/|b|=1.29125602  |r|=975.4612663
+iter=   900  |r|/|b|=0.9021019986  |r|=681.4803142
+iter=   950  |r|/|b|=0.7378274464  |r|=557.3814056
+iter=  1000  |r|/|b|=0.5458338039  |r|=412.3424987
+iter=  1050  |r|/|b|=0.3928314114  |r|=296.7589852
+iter=  1100  |r|/|b|=0.294997778  |r|=222.8519377
+iter=  1150  |r|/|b|=0.314364065  |r|=237.4819279
+iter=  1200  |r|/|b|=0.2225131237  |r|=168.0944214
+iter=  1250  |r|/|b|=0.08766049327  |r|=66.2218913
+iter=  1300  |r|/|b|=0.07346558191  |r|=55.49854442
+iter=  1350  |r|/|b|=0.05251120067  |r|=39.66885074
+iter=  1400  |r|/|b|=0.0423816683  |r|=32.01663744
+iter=  1450  |r|/|b|=0.03393870702  |r|=25.63852065
+iter=  1500  |r|/|b|=0.02487625441  |r|=18.79241782
+iter=  1550  |r|/|b|=0.02082296843  |r|=15.73041972
+iter=  1600  |r|/|b|=0.01986216754  |r|=15.00459615
+iter=  1650  |r|/|b|=0.01683257393  |r|=12.71593211
+iter=  1700  |r|/|b|=0.009587500234  |r|=7.242742707
+iter=  1750  |r|/|b|=0.00498298679  |r|=3.764327546
+iter=  1800  |r|/|b|=0.002427770758  |r|=1.8340254
+iter=  1850  |r|/|b|=0.001595261235  |r|=1.205117746
+iter=  1900  |r|/|b|=0.0009952191129  |r|=0.7518243333
+iter=  1950  |r|/|b|=0.0005578059493  |r|=0.4213866881
+iter=  2000  |r|/|b|=0.0003797985658  |r|=0.2869135046
+iter=  2050  |r|/|b|=0.0002098304205  |r|=0.1585134509
+iter=  2100  |r|/|b|=0.000143533493  |r|=0.108430366
+iter=  2150  |r|/|b|=0.0001132565827  |r|=0.0855580984
+iter=  2200  |r|/|b|=8.480861838e-05  |r|=0.06406748238
+iter=  2250  |r|/|b|=5.573968384e-05  |r|=0.04210776311
+iter=  2300  |r|/|b|=3.187453807e-05  |r|=0.02407917315
+iter=  2350  |r|/|b|=2.217765974e-05  |r|=0.01675380228
+iter=  2400  |r|/|b|=1.819905035e-05  |r|=0.01374821757
+iter=  2450  |r|/|b|=1.202829921e-05  |r|=0.009086610093
+iter=  2500  |r|/|b|=7.9663704e-06  |r|=0.00601808289
+iter=  2550  |r|/|b|=4.355151835e-06  |r|=0.003290038427
+iter=  2600  |r|/|b|=2.285930512e-06  |r|=0.001726874174
+iter=  2650  |r|/|b|=1.33380168e-06  |r|=0.00100760179
+iter=  2700  |r|/|b|=8.516984866e-07  |r|=0.0006434036873
+iter=  2750  |r|/|b|=6.024447053e-07  |r|=0.0004551084109
+iter=  2800  |r|/|b|=4.324654196e-07  |r|=0.0003266999413
+iter=  2850  |r|/|b|=2.521003175e-07  |r|=0.0001904456523
+iter=  2900  |r|/|b|=1.106375363e-07  |r|=8.357957646e-05
+iter=  2950  |r|/|b|=5.057341455e-08  |r|=3.820497736e-05
+iter=  3000  |r|/|b|=2.819788891e-08  |r|=2.130170005e-05
+iter=  3050  |r|/|b|=1.433868554e-08  |r|=1.083195907e-05
+final |r|/|b|=9.861046744e-09
+solve time: 22.40355308 s
+iterations: 3076
+
+
+PS:
+
+Read file <./log/part1-800x1200-p4.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346644: <sol1_p4_800x1200_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p4_800x1200_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:56 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:52:09 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:52:09 2025
+Terminated at Sun Nov 23 18:52:37 2025
+Results reported at Sun Nov 23 18:52:37 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p4_800x1200_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-800x1200-p4.out
+#BSUB -e ./log/part1-800x1200-p4.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=4 ./sol1 800 1200
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   87.79 sec.
+    Max Memory :                                 72 MB
+    Average Memory :                             60.17 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                8
+    Run time :                                   28 sec.
+    Turnaround time :                            41 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=25.88824662  |r|=19556.91315
+iter=    50  |r|/|b|=83.19037695  |r|=62845.00456
+iter=   100  |r|/|b|=97.74530002  |r|=73840.31725
+iter=   150  |r|/|b|=83.85699422  |r|=63348.59124
+iter=   200  |r|/|b|=83.18188045  |r|=62838.586
+iter=   250  |r|/|b|=84.42669606  |r|=63778.96451
+iter=   300  |r|/|b|=75.26464992  |r|=56857.62514
+iter=   350  |r|/|b|=55.72823694  |r|=42099.11571
+iter=   400  |r|/|b|=36.67875471  |r|=27708.45129
+iter=   450  |r|/|b|=23.26152422  |r|=17572.59252
+iter=   500  |r|/|b|=15.7677195  |r|=11911.50275
+iter=   550  |r|/|b|=9.256124168  |r|=6992.409302
+iter=   600  |r|/|b|=5.123408752  |r|=3870.40735
+iter=   650  |r|/|b|=2.477134447  |r|=1871.316507
+iter=   700  |r|/|b|=1.798209933  |r|=1358.432496
+iter=   750  |r|/|b|=1.601569937  |r|=1209.883567
+iter=   800  |r|/|b|=1.666521785  |r|=1258.95053
+iter=   850  |r|/|b|=1.29125602  |r|=975.4612663
+iter=   900  |r|/|b|=0.9021019986  |r|=681.4803142
+iter=   950  |r|/|b|=0.7378274464  |r|=557.3814056
+iter=  1000  |r|/|b|=0.5458338039  |r|=412.3424987
+iter=  1050  |r|/|b|=0.3928314114  |r|=296.7589852
+iter=  1100  |r|/|b|=0.294997778  |r|=222.8519377
+iter=  1150  |r|/|b|=0.314364065  |r|=237.4819279
+iter=  1200  |r|/|b|=0.2225131237  |r|=168.0944214
+iter=  1250  |r|/|b|=0.08766049327  |r|=66.2218913
+iter=  1300  |r|/|b|=0.07346558191  |r|=55.49854442
+iter=  1350  |r|/|b|=0.05251120067  |r|=39.66885074
+iter=  1400  |r|/|b|=0.0423816683  |r|=32.01663744
+iter=  1450  |r|/|b|=0.03393870702  |r|=25.63852065
+iter=  1500  |r|/|b|=0.02487625441  |r|=18.79241782
+iter=  1550  |r|/|b|=0.02082296843  |r|=15.73041972
+iter=  1600  |r|/|b|=0.01986216754  |r|=15.00459615
+iter=  1650  |r|/|b|=0.01683257393  |r|=12.71593211
+iter=  1700  |r|/|b|=0.009587500234  |r|=7.242742707
+iter=  1750  |r|/|b|=0.00498298679  |r|=3.764327546
+iter=  1800  |r|/|b|=0.002427770758  |r|=1.8340254
+iter=  1850  |r|/|b|=0.001595261235  |r|=1.205117746
+iter=  1900  |r|/|b|=0.0009952191129  |r|=0.7518243333
+iter=  1950  |r|/|b|=0.0005578059493  |r|=0.4213866881
+iter=  2000  |r|/|b|=0.0003797985658  |r|=0.2869135046
+iter=  2050  |r|/|b|=0.0002098304205  |r|=0.1585134509
+iter=  2100  |r|/|b|=0.000143533493  |r|=0.108430366
+iter=  2150  |r|/|b|=0.0001132565827  |r|=0.0855580984
+iter=  2200  |r|/|b|=8.480861838e-05  |r|=0.06406748238
+iter=  2250  |r|/|b|=5.573968384e-05  |r|=0.04210776311
+iter=  2300  |r|/|b|=3.187453807e-05  |r|=0.02407917315
+iter=  2350  |r|/|b|=2.217765974e-05  |r|=0.01675380228
+iter=  2400  |r|/|b|=1.819905035e-05  |r|=0.01374821757
+iter=  2450  |r|/|b|=1.202829921e-05  |r|=0.009086610093
+iter=  2500  |r|/|b|=7.9663704e-06  |r|=0.00601808289
+iter=  2550  |r|/|b|=4.355151835e-06  |r|=0.003290038427
+iter=  2600  |r|/|b|=2.285930512e-06  |r|=0.001726874173
+iter=  2650  |r|/|b|=1.33380168e-06  |r|=0.001007601789
+iter=  2700  |r|/|b|=8.516984863e-07  |r|=0.0006434036871
+iter=  2750  |r|/|b|=6.02444705e-07  |r|=0.0004551084107
+iter=  2800  |r|/|b|=4.324654195e-07  |r|=0.0003266999412
+iter=  2850  |r|/|b|=2.521003176e-07  |r|=0.0001904456524
+iter=  2900  |r|/|b|=1.106375364e-07  |r|=8.357957659e-05
+iter=  2950  |r|/|b|=5.057341499e-08  |r|=3.82049777e-05
+iter=  3000  |r|/|b|=2.819789005e-08  |r|=2.130170091e-05
+iter=  3050  |r|/|b|=1.433868788e-08  |r|=1.083196084e-05
+final |r|/|b|=9.86104959e-09
+solve time: 23.56528185 s
+iterations: 3076
+
+
+PS:
+
+Read file <./log/part1-800x1200-p4.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346664: <sol1_p4_800x1200_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p4_800x1200_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:58 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:53:15 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:53:15 2025
+Terminated at Sun Nov 23 18:53:40 2025
+Results reported at Sun Nov 23 18:53:40 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p4_800x1200_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-800x1200-p4.out
+#BSUB -e ./log/part1-800x1200-p4.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=4 ./sol1 800 1200
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   85.99 sec.
+    Max Memory :                                 72 MB
+    Average Memory :                             60.17 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                8
+    Run time :                                   26 sec.
+    Turnaround time :                            102 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=25.88824662  |r|=19556.91315
+iter=    50  |r|/|b|=83.19037695  |r|=62845.00456
+iter=   100  |r|/|b|=97.74530002  |r|=73840.31725
+iter=   150  |r|/|b|=83.85699422  |r|=63348.59124
+iter=   200  |r|/|b|=83.18188045  |r|=62838.586
+iter=   250  |r|/|b|=84.42669606  |r|=63778.96451
+iter=   300  |r|/|b|=75.26464992  |r|=56857.62514
+iter=   350  |r|/|b|=55.72823694  |r|=42099.11571
+iter=   400  |r|/|b|=36.67875471  |r|=27708.45129
+iter=   450  |r|/|b|=23.26152422  |r|=17572.59252
+iter=   500  |r|/|b|=15.7677195  |r|=11911.50275
+iter=   550  |r|/|b|=9.256124168  |r|=6992.409302
+iter=   600  |r|/|b|=5.123408752  |r|=3870.40735
+iter=   650  |r|/|b|=2.477134447  |r|=1871.316507
+iter=   700  |r|/|b|=1.798209933  |r|=1358.432496
+iter=   750  |r|/|b|=1.601569937  |r|=1209.883567
+iter=   800  |r|/|b|=1.666521785  |r|=1258.95053
+iter=   850  |r|/|b|=1.29125602  |r|=975.4612663
+iter=   900  |r|/|b|=0.9021019986  |r|=681.4803142
+iter=   950  |r|/|b|=0.7378274464  |r|=557.3814056
+iter=  1000  |r|/|b|=0.5458338039  |r|=412.3424987
+iter=  1050  |r|/|b|=0.3928314114  |r|=296.7589852
+iter=  1100  |r|/|b|=0.294997778  |r|=222.8519377
+iter=  1150  |r|/|b|=0.314364065  |r|=237.4819279
+iter=  1200  |r|/|b|=0.2225131237  |r|=168.0944214
+iter=  1250  |r|/|b|=0.08766049327  |r|=66.2218913
+iter=  1300  |r|/|b|=0.07346558191  |r|=55.49854442
+iter=  1350  |r|/|b|=0.05251120067  |r|=39.66885074
+iter=  1400  |r|/|b|=0.0423816683  |r|=32.01663744
+iter=  1450  |r|/|b|=0.03393870702  |r|=25.63852065
+iter=  1500  |r|/|b|=0.02487625441  |r|=18.79241782
+iter=  1550  |r|/|b|=0.02082296843  |r|=15.73041972
+iter=  1600  |r|/|b|=0.01986216754  |r|=15.00459615
+iter=  1650  |r|/|b|=0.01683257393  |r|=12.71593211
+iter=  1700  |r|/|b|=0.009587500234  |r|=7.242742707
+iter=  1750  |r|/|b|=0.00498298679  |r|=3.764327546
+iter=  1800  |r|/|b|=0.002427770758  |r|=1.8340254
+iter=  1850  |r|/|b|=0.001595261235  |r|=1.205117746
+iter=  1900  |r|/|b|=0.0009952191129  |r|=0.7518243333
+iter=  1950  |r|/|b|=0.0005578059493  |r|=0.4213866881
+iter=  2000  |r|/|b|=0.0003797985658  |r|=0.2869135046
+iter=  2050  |r|/|b|=0.0002098304205  |r|=0.1585134509
+iter=  2100  |r|/|b|=0.000143533493  |r|=0.108430366
+iter=  2150  |r|/|b|=0.0001132565827  |r|=0.0855580984
+iter=  2200  |r|/|b|=8.480861838e-05  |r|=0.06406748238
+iter=  2250  |r|/|b|=5.573968384e-05  |r|=0.04210776311
+iter=  2300  |r|/|b|=3.187453807e-05  |r|=0.02407917315
+iter=  2350  |r|/|b|=2.217765974e-05  |r|=0.01675380228
+iter=  2400  |r|/|b|=1.819905035e-05  |r|=0.01374821757
+iter=  2450  |r|/|b|=1.202829921e-05  |r|=0.009086610093
+iter=  2500  |r|/|b|=7.9663704e-06  |r|=0.00601808289
+iter=  2550  |r|/|b|=4.355151835e-06  |r|=0.003290038427
+iter=  2600  |r|/|b|=2.285930512e-06  |r|=0.001726874173
+iter=  2650  |r|/|b|=1.33380168e-06  |r|=0.001007601789
+iter=  2700  |r|/|b|=8.516984863e-07  |r|=0.000643403687
+iter=  2750  |r|/|b|=6.02444705e-07  |r|=0.0004551084106
+iter=  2800  |r|/|b|=4.324654194e-07  |r|=0.0003266999412
+iter=  2850  |r|/|b|=2.521003175e-07  |r|=0.0001904456523
+iter=  2900  |r|/|b|=1.106375363e-07  |r|=8.357957653e-05
+iter=  2950  |r|/|b|=5.057341494e-08  |r|=3.820497766e-05
+iter=  3000  |r|/|b|=2.819789004e-08  |r|=2.130170091e-05
+iter=  3050  |r|/|b|=1.433868794e-08  |r|=1.083196088e-05
+final |r|/|b|=9.861049672e-09
+solve time: 22.35300804 s
+iterations: 3076
+
+
+PS:
+
+Read file <./log/part1-800x1200-p4.err> for stderr output of this job.
+

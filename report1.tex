@@ -1,0 +1,370 @@
+\documentclass[12pt,a4paper]{article}
+
+% --- Русская типографика и математика ---
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{geometry}
+\geometry{left=25mm,right=15mm,top=20mm,bottom=20mm}
+\usepackage{microtype}
+\usepackage{float} 
+% --- Графика, таблицы, ссылки ---
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={,},round-mode=places,round-precision=3}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue}
+
+% --- Пакеты для графиков (по желанию) ---
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% --- Листинги (команды/код) ---
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  tabsize=2,
+  showstringspaces=false
+}
+
+% --- Удобные обозначения ---
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\grad}{\nabla}
+\newcommand{\lap}{\Delta}
+\newcommand{\dd}{\,\mathrm{d}}
+
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[T2A]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{indentfirst}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+
+\geometry{left=3cm,right=1.5cm,top=2cm,bottom=2cm}
+\onehalfspacing
+\parindent=1.25cm
+
+\theoremstyle{definition}
+\newtheorem{definition}{Определение}[section]
+\newtheorem{theorem}{Теорема}[section]
+\newtheorem{lemma}{Лемма}[section]
+\newtheorem{corollary}{Следствие}[section]
+\newtheorem{example}{Пример}[section]
+
+\title{\textbf{Метод наименьших квадратов: теория, применение и современные аспекты}}
+\author{Научный отчёт}
+\date{\today}
+
+\begin{document}
+\thispagestyle{empty}
+
+\begin{center}
+\ \vspace{-3cm}
+
+\includegraphics[width=0.5\textwidth]{msu.eps}\\
+{\scshape Московский государственный университет имени М.~В.~Ломоносова}\\
+Факультет вычислительной математики и кибернетики\\
+Кафедра системного анализа
+
+\vfill
+
+{\LARGE Отчет по заданию}
+
+\vspace{1cm}
+
+{\Huge\bfseries <<Реализация параллельного алгоритма с
+использованием технологии OpenMP>>}
+\end{center}
+
+\vspace{1cm}
+
+\begin{flushright}
+  \large
+  \textit{Студент 616 группы}\\
+  М.~Н.~Преображенский\\
+  
+
+  \vspace{5mm}
+
+\end{flushright}
+
+\vfill
+
+\begin{center}
+{\Large 31 oct 2025}
+\end{center}
+\newpage
+\tableofcontents
+\newpage
+
+% ====== 1. Введение ======
+\section{Введение}
+Цель работы — решить двумерную задачу Дирихле для уравнения Пуассона в криволинейной области методом фиктивных областей, реализовать вычисления на OpenMP и исследовать масштабируемость на ПВС IBM~Polus. % Структура разделов и акценты соответствуют референсному отчёту.
+
+% ====== 2. Математическая постановка задачи (в точности по референсу) ======
+\section{Математическая постановка задачи}\label{sec:math}
+Рассматривается задача Пуассона в криволинейной области $D\subset\RR^2$, ограниченной контуром $\gamma$:
+\begin{equation}\label{eq:poisson}
+  -\lap u = f(x,y), \quad (x,y)\in D,
+\end{equation}
+с граничным условием Дирихле первого рода
+\begin{equation}\label{eq:dirichlet}
+  u(x,y)=0, \quad (x,y)\in\gamma.
+\end{equation}
+В данной работе $f(x,y)\equiv1$. Для \textbf{варианта 10} область $D$ задаётся неравенствами
+\[
+  D=\{(x,y):\ x^2-4y^2>1,\ 1<x<3\},
+\]
+то есть область ограничена дугой гиперболы и отрезком прямой $x=3$. % Формулировка и структура соответствуют референсу.
+% (см. референсный отчёт по OpenMP, разделы 2–3).
+% ↑ этот раздел текстуально воспроизводит содержание референса.
+
+% ====== 3. Численный метод (подробно по методичке) ======
+\section{Краткое описание численного метода решения}\label{sec:numerics}
+Далее изложен метод применительно к варианту~10.
+
+\subsection*{3.1. Метод фиктивных областей и переформулировка задачи}
+Пусть $D\subset\Pi=\{(x,y): A_1<x<B_1,\ A_2<y<B_2\}$ — охватывающий прямоугольник, $\widehat D=\Pi\setminus D$ — фиктивная область. В~$\Pi$ решается задача
+\begin{equation}\label{eq:mfoPDE}
+ -\frac{\partial}{\partial x}\!\Big(k\,u_x\Big) - \frac{\partial}{\partial y}\!\Big(k\,u_y\Big)=F(x,y),\quad (x,y)\in \Pi\setminus\gamma,\qquad u|_{\partial\Pi}=0,
+\end{equation}
+где кусочно-постоянный коэффициент
+\[
+k(x,y)=
+\begin{cases}
+1, & (x,y)\in D,\\
+1/\varepsilon, & (x,y)\in \widehat D,
+\end{cases}
+\qquad \varepsilon=\max(h_x,h_y)^2.
+\]
+Правая часть берётся как $F\equiv f\equiv1$ (внутри $D$) и затухает в $\widehat D$ по определению \eqref{eq:mfoPDE}. % Методичка предписывает именно $\varepsilon=h^2$.
+
+\subsection*{3.2. Сетка и нотация}
+Покроем $\Pi$ равномерной сеткой $\omega_h$ с внутренними узлами $M\times N$, шаги $h_x=\frac{B_1-A_1}{M+1}$, $h_y=\frac{B_2-A_2}{N+1}$. Обозначим полуцелые точки $x_{i\pm\frac12}=x_i\pm\frac{h_x}{2}$, $y_{j\pm\frac12}=y_j\pm\frac{h_y}{2}$.
+
+\subsection*{3.3. Разностная схема (5-точечный шаблон с переменными коэффициентами)}
+Дифференциальный оператор аппроксимируем дивергентной схемой: 
+\begin{align}\label{eq:divscheme}
+ -\frac{1}{h_x}\!\left(a_{i+1,j}\,\frac{w_{i+1,j}-w_{i,j}}{h_x}-a_{i,j}\,\frac{w_{i,j}-w_{i-1,j}}{h_x}\right)
+ -\frac{1}{h_y}\!\left(b_{i,j+1}\,\frac{w_{i,j+1}-w_{i,j}}{h_y}-b_{i,j}\,\frac{w_{i,j}-w_{i,j-1}}{h_y}\right)
+ = F_{ij},
+\end{align}
+для $i=1,\dots,M$, $j=1,\dots,N$, где \emph{гранные коэффициенты} определяются интегралами
+\begin{equation}\label{eq:ab11}
+a_{i,j}= \frac{1}{h_y}\int_{y_{j-\frac12}}^{y_{j+\frac12}} k(x_{i-\frac12},t)\,\dd t,\qquad
+b_{i,j}= \frac{1}{h_x}\int_{x_{i-\frac12}}^{x_{i+\frac12}} k(t,y_{j-\frac12})\,\dd t.
+\end{equation}
+Правая часть ячейки
+\begin{equation}\label{eq:Fij12}
+  F_{ij}=\frac{1}{h_x h_y}\iint\limits_{\Pi_{ij}} F(x,y)\,\dd x\,\dd y,\qquad
+  \Pi_{ij}=[x_{i-\frac12},x_{i+\frac12}]\times[y_{j-\frac12},y_{j+\frac12}].
+\end{equation}
+Граничные узлы прямоугольника $\partial\Pi$ задаются условием $w_{ij}=0$ и исключаются из системы. Получаем СЛАУ $Aw=F$ с самосопряжённым положительно-определённым оператором (см. методичку: доказательство SPD через интегральную форму энергии).
+
+\paragraph{Практическое вычисление $a_{i,j}$ и $b_{i,j}$.}
+Так как $k$ кусочно-постоянна (1 или $1/\varepsilon$), интегралы \eqref{eq:ab11} считаются \emph{аналитически} как доля \emph{длины} соответствующей грани внутри $D$:
+\[
+a_{i,j}=\frac{\ell^{(D)}_{i,j}}{h_y}\cdot 1 + \Bigl(1-\frac{\ell^{(D)}_{i,j}}{h_y}\Bigr)\cdot \frac{1}{\varepsilon},\qquad
+b_{i,j}=\frac{\tilde\ell^{(D)}_{i,j}}{h_x}\cdot 1 + \Bigl(1-\frac{\tilde\ell^{(D)}_{i,j}}{h_x}\Bigr)\cdot \frac{1}{\varepsilon}.
+\]
+Здесь $\ell^{(D)}_{i,j}$ — длина пересечения \emph{вертикального} отрезка $[x_{i-\frac12}]\times[y_{j-\frac12},y_{j+\frac12}]$ с $D$, а $\tilde\ell^{(D)}_{i,j}$ — длина пересечения \emph{горизонтального} отрезка $[x_{i-\frac12},x_{i+\frac12}]\times[y_{j-\frac12}]$ с $D$. Для варианта 10 граница задаётся $|y|<\frac12\sqrt{x^2-1}$ при $1<x<3$, поэтому:
+\[
+\ell^{(D)}_{i,j}=\max\Bigl(0, \min(y_{j+\frac12},\tfrac12\sqrt{x_{i-\frac12}^2-1})-\max(y_{j-\frac12},-\tfrac12\sqrt{x_{i-\frac12}^2-1})\Bigr),
+\]
+\[
+\tilde\ell^{(D)}_{i,j}=\max\Bigl(0, \min(x_{i+\frac12},3)-\max\bigl(x_{i-\frac12}, \sqrt{1+4y_{j-\frac12}^2}\bigr)\Bigr).
+\]
+То есть мы считаем (5) \emph{аналитически}, а не через усреднение по узлам.
+
+\paragraph{Практическое вычисление $F_{ij}$.}
+Если $\Pi_{ij}\subset D$, то $F_{ij}\approx f(x_i,y_j)=1$. Если $\Pi_{ij}\subset\widehat D$, то $F_{ij}=0$. В смешанном случае $F_{ij}\approx \dfrac{S_{ij}}{h_x h_y}\cdot 1$, где $S_{ij}=\text{mes}(\Pi_{ij}\cap D)$ — площадь пересечения; криволинейную границу внутри ячейки можно линеаризовать (методичка). На практике удобно оценивать $S_{ij}$ субсемплингом $q\times q$ (например, $q=4$).
+
+\paragraph{Выбор $\varepsilon$.}
+По заданию и методичке берём $\varepsilon=\max(h_x,h_y)^2$. Это даёт «жёсткое» подавление фиктивной области без ухудшения обусловленности сверх сеточного уровня.
+
+% ====== 4. Реализация OpenMP (подробно по структуре кода) ======
+\section{Краткое описание реализации OpenMP-решения}\label{sec:omp}
+Ниже приведена \textbf{структура кода} и где именно включён параллелизм. Реализация соответствует схеме \eqref{eq:divscheme}–\eqref{eq:Fij12}.
+
+\subsection*{4.1. Модули и ключевые функции}
+\begin{itemize}
+  \item \texttt{in\_D(x,y)}, \texttt{y\_cap(x)} — геометрия варианта 10: $|y|<\tfrac12\sqrt{x^2-1}$ при $1<x<3$.
+  \item \texttt{build\_faces(ax, by)} — сборка гранных коэффициентов $a_{i,j}$ (\texttt{ax}) и $b_{i,j}$ (\texttt{by}) по формулам выше: вычисление длин пересечений вертикальных/горизонтальных граней с $D$ и конструирование смеси $1$ и $1/\varepsilon$.
+  \item \texttt{build\_rhs(F)} — правая часть: для каждой ячейки $F_{ij}$ как доля площади $\Pi_{ij}\cap D$ (субсемплинг $q\times q$).
+  \item \texttt{build\_diag(A\_diag)} — диагональ матрицы $A$ по $a_{i\pm1,j}$, $b_{i,j\pm1}$ (нужна \& для матвектора, \& для Якоби).
+  \item \texttt{matvec(v,Av)} — применение 5-точечного оператора с переменными коэффициентами: главный диагональный вклад $((a_L+a_R)/h_x^2+(b_D+b_U)/h_y^2)\,v_{ij}$ плюс четыре соседних со знаками «минус».
+  \item \texttt{dot(a,b)} — скалярное произведение.
+  \item \texttt{pcg(A,\ldots)} — PCG с диагональным предобуславливанием (Jacobi): $z=D^{-1}r$, обновления $u,r$, вычисления $\alpha,\beta$, критерий остановки $\|r\|/\|b\|\le10^{-8}$.
+  \item \texttt{io::write\_csv} — сохранение \texttt{solution.csv} с колонками $(x,y,u)$.
+\end{itemize}
+
+\subsection*{4.2. Где стоит OpenMP}
+\begin{itemize}
+  \item \textbf{Сборка граней} (\texttt{build\_faces}): двойные циклы по $(i,j)$ c \verb|#pragma omp parallel for collapse(2)| — полностью независимые ячейки, нет гонок.
+  \item \textbf{Правая часть} (\texttt{build\_rhs}): двойной цикл + вложенный мини-цикл субсемплинга — тоже \verb|collapse(2)|; мини-цикл оставляем обычным (мелкий).
+  \item \textbf{Диагональ} (\texttt{build\_diag}): двойной цикл, \verb|collapse(2)|.
+  \item \textbf{Матвектор} (\texttt{matvec}): основной «тяжёлый» участок в PCG; двойной цикл по внутренним узлам с \verb|collapse(2)|.
+  \item \textbf{Скалярные произведения} (\texttt{dot}): \verb|#pragma omp parallel for reduction(+:s)|.
+  \item \textbf{Покомпонентные операции} ($u+=\alpha p$, $r-= \alpha Ap$, $z=D^{-1}r$, $p=z+\beta p$): линейные проходы \verb|#pragma omp parallel for|.
+\end{itemize}
+
+\section{Результаты тестирования программы}\label{sec:results}
+
+\subsection{Сходимость по сетке и корректность}
+В таблице 1 приведено число итераций и конечная относительная невязка
+для последовательного запуска (1 поток) на разных сетках. 
+% TODO: Замените ХХХ на фактические значения из лога.
+\begin{table}[h]
+\centering
+\caption{Сходимость по сетке (p=1): число итераций, конечная относительная невязка и время решения.}
+\label{tab:conv_p1}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Размер сетки $M{\times}N$ & Итерации & $\|r\|/\|b\|$ & Время $t$, мc \\
+\midrule
+$10{\times}10$  & 29  & $5.091\times 10^{-9}$  & 0.197 \\
+$20{\times}20$  & 61  & $7.575\times 10^{-9}$ & 0.819 \\
+$40{\times}40$  & 123 & $9.802\times 10^{-9}$ & 5.198 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Сравнение последовательной и параллельной версий}
+Сетка $40{\times}40$. Величина САО считается между решениями, полученными при p=1 (seq) и p>1 (par).
+% TODO: Замените значения.
+
+\begin{table}[h]
+\centering
+\caption{Сетка $40{\times}40$: итерации, конечная невязка и время решения при разном числе потоков.}
+\label{tab:40x40_runs}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+$p$ & Итерации & $\|r\|/\|b\|$ & Время $t$, мc\\
+\midrule
+1  & 123 & $9.801\times10^{-9}$ & 5.198ms\\
+4  & 123 & $9.801\times10^{-9}$ & 3.13ms\\
+16 & 123 & $9.801\times10^{-9}$ & 2.54ms\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Визуализация решения}
+На рис.1-4 показаны карты $u(x,y)$ на мелкой и крупной сетках.
+% TODO: Экспортируйте картинки из Python/gnuplot как PNG и положите в проект.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{sol_40x40.png}\\[3mm]
+\caption{Поле распределения потенциала $u(x,y)$ для размера сетки: 
+(а)~$40{\times}40$}
+\label{fig:sols1}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{sol_120x80.png}\\[3mm]
+\caption{Поле распределения потенциала $u(x,y)$ для размера сетки: 
+(b)~$120{\times}80$}
+\label{fig:sols2}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{sol_1200x800.png}\\[3mm]
+\caption{Поле распределения потенциала $u(x,y)$ для размера сетки: 
+(c)~$1200{\times}800$}
+\label{fig:sols4}
+\end{figure}
+
+\newpage
+
+% ====== 6. Анализ ускорения ======
+\section{Анализ ускорения OpenMP-реализации}\label{sec:speedup}
+
+\subsection{Strong scaling: сетка $400{\times}600$}
+\begin{table}[h]
+\centering
+\caption{Ускорение на $400{\times}600$.}
+\label{tab:scaling4060}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+$p$ & Итерации & Время $t$, c & Ускорение $s$ & Эффективность $eff$ \\
+\midrule
+1  & 1520 & 9.475 & 1.000 & 1.000 \\
+2  & 1520 & 4.740 & 2.000 & 1.000 \\
+4  & 1520 & 3.544 & 2.674 & 0.668 \\
+8  & 1520 & 2.388 & 3.970 & 0.496 \\
+16 & 1520 & 1.413 & 6.710 & 0.419 \\
+32 & 1520 & 1.270 & 7.460 & 0.233 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{scaling_400x600.png}\\[3mm]
+\caption{График ускорения}
+\end{figure}
+
+\subsection{Strong scaling: сетка $800{\times}1200$}
+\begin{table}[h]
+\centering
+\caption{Ускорение на $800{\times}1200$.}
+\label{tab:scaling8012}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+$p$ & Итерации & Время $T_p$, c & Ускорение $S_p$ & Эффективность $E_p$ \\
+\midrule
+1  & 3076 & 87.900 & 1.000 & 1.000 \\
+4  & 3076 & 22.404 & 3.924 & 0.981 \\
+8  & 3076 & 18.915 & 4.647 & 0.581 \\
+16 & 3076 & 16.916 & 5.195 & 0.188 \\
+32 & 3076 & 14.616 & 6.015 & 0.188 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{scaling_800x1200.png}\\[3mm]
+\caption{График ускорения}
+\end{figure}
+
+% ====== 7. Заключение ======
+
+\section{Заключение}\label{sec:concl}
+
+В ходе работы была реализована и исследована OpenMP-параллельная версия алгоритма решения уравнения Пуассона на прямоугольной сетке методом сопряжённых градиентов (CG/PCG). Проведено тестирование на наборах различных размеров сеток и числа потоков.
+
+Результаты измерений показывают, что реализованная программа демонстрирует почти идеальное ускорение при переходе с одного до двух потоков и далее — выраженно сублинейный рост. Для сетки $400{\times}600$ почти идеальное ускорение достигается при $p=2$ ($S_2 \approx 2.00$, $E_2 \approx 1.00$), при $p=8$ получаем $S_8 \approx 3.97$ ($E_8 \approx 0.50$), а максимальное измеренное ускорение составляет $S_{32} \approx 7.46$ ($E_{32} \approx 0.23$). Для более крупной задачи $800{\times}1200$ масштабируемость лучше: при $p=4$ имеем $S_4 \approx 3.92$ ($E_4 \approx 0.98$), при $p=8$ — $S_8 \approx 4.65$ ($E_8 \approx 0.58$), а при $p=32$ — $S_{32} \approx 6.01$ ($E_{32} \approx 0.19$), что отражает более выгодное соотношение вычислительной и коммуникационной составляющих для крупной сетки.
+
+При дальнейшем увеличении числа потоков (от 8 к 16–32) ускорение продолжает расти, но прирост становится существенно менее выраженным: эффективность падает ниже $0.5$ для обеих сеток. Это объясняется ростом накладных расходов на синхронизацию между потоками, конкуренцией за общие ресурсы памяти (memory bandwidth), а также ограничениями кэш-иерархии. Таким образом, на используемой системе практически целесообразно использовать диапазон примерно от 4 до 8 потоков, обеспечивающий наилучший баланс между производительностью и эффективностью.
+
+Полученные результаты подтверждают корректность параллельной реализации и её эффективность при решении задач с большими размерами сетки. Дальнейшее повышение производительности возможно за счёт оптимизации работы с памятью, использования NUMA-распределения и векторизации вычислений.
+
+\end{document}

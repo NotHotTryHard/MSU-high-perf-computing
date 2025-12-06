@@ -1,0 +1,159 @@
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346350: <sol1_p1_20x20_part2> in cluster <MSUCluster> Done
+
+Job <sol1_p1_20x20_part2> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:50:30 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:51:27 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 17:51:27 2025
+Terminated at Sun Nov 23 17:51:31 2025
+Results reported at Sun Nov 23 17:51:31 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_20x20_part2
+#BSUB -n 1 -q normal
+#BSUB -W 00:10
+#BSUB -o ./log/part2-20x20-p1.out
+#BSUB -e ./log/part2-20x20-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 20 20
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   0.02 sec.
+    Max Memory :                                 1 MB
+    Average Memory :                             0.33 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              1
+    Max Threads :                                1
+    Run time :                                   3 sec.
+    Turnaround time :                            61 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=2.888120003  |r|=45.10520895
+iter=    50  |r|/|b|=2.046965049e-06  |r|=3.196847297e-05
+final |r|/|b|=7.574876884e-09
+solve time: 0.0008192807436 s
+iterations: 61
+
+
+PS:
+
+Read file <./log/part2-20x20-p1.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346650: <sol1_p1_20x20_part2> in cluster <MSUCluster> Done
+
+Job <sol1_p1_20x20_part2> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:56 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:52:53 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:52:53 2025
+Terminated at Sun Nov 23 18:52:54 2025
+Results reported at Sun Nov 23 18:52:54 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_20x20_part2
+#BSUB -n 1 -q normal
+#BSUB -W 00:10
+#BSUB -o ./log/part2-20x20-p1.out
+#BSUB -e ./log/part2-20x20-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 20 20
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   0.04 sec.
+    Max Memory :                                 1 MB
+    Average Memory :                             0.33 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              1
+    Max Threads :                                1
+    Run time :                                   2 sec.
+    Turnaround time :                            58 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=2.888120003  |r|=45.10520895
+iter=    50  |r|/|b|=2.046965049e-06  |r|=3.196847297e-05
+final |r|/|b|=7.574876884e-09
+solve time: 0.003520257771 s
+iterations: 61
+
+
+PS:
+
+Read file <./log/part2-20x20-p1.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346670: <sol1_p1_20x20_part2> in cluster <MSUCluster> Done
+
+Job <sol1_p1_20x20_part2> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:58 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:54:03 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:54:03 2025
+Terminated at Sun Nov 23 18:54:04 2025
+Results reported at Sun Nov 23 18:54:04 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_20x20_part2
+#BSUB -n 1 -q normal
+#BSUB -W 00:10
+#BSUB -o ./log/part2-20x20-p1.out
+#BSUB -e ./log/part2-20x20-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 20 20
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   0.03 sec.
+    Max Memory :                                 4 MB
+    Average Memory :                             2.00 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              1
+    Max Threads :                                1
+    Run time :                                   2 sec.
+    Turnaround time :                            126 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=2.888120003  |r|=45.10520895
+iter=    50  |r|/|b|=2.046965049e-06  |r|=3.196847297e-05
+final |r|/|b|=7.574876884e-09
+solve time: 0.001982625574 s
+iterations: 61
+
+
+PS:
+
+Read file <./log/part2-20x20-p1.err> for stderr output of this job.
+

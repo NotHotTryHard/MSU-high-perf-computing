@@ -1,0 +1,115 @@
+Sender: LSF System <lsfadmin@polus-c2-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1372044: <solution2_p1_800x1200_part1> in cluster <MSUCluster> Done
+
+Job <solution2_p1_800x1200_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sat Nov 29 02:34:16 2025
+Job was executed on host(s) <polus-c2-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sat Nov 29 02:34:17 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sat Nov 29 02:34:17 2025
+Terminated at Sat Nov 29 02:35:42 2025
+Results reported at Sat Nov 29 02:35:42 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J solution2_p1_800x1200_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log2/part1-800x1200-p1.out
+#BSUB -e ./log2/part1-800x1200-p1.err
+#BSUB -R "span[hosts=1]"
+mpirun -np 1 ./solution2 800 1200
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   84.24 sec.
+    Max Memory :                                 167 MB
+    Average Memory :                             148.77 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              6
+    Max Threads :                                13
+    Run time :                                   85 sec.
+    Turnaround time :                            86 sec.
+
+The output (if any) follows:
+
+Grid: 800 x 1200
+MPI processes: 1
+iter=     0  |r|/|b|=25.88824662  |r|=19556.91315
+iter=    50  |r|/|b|=83.19037696  |r|=62845.00457
+iter=   100  |r|/|b|=97.74530002  |r|=73840.31724
+iter=   150  |r|/|b|=83.8569942  |r|=63348.59123
+iter=   200  |r|/|b|=83.18188043  |r|=62838.58598
+iter=   250  |r|/|b|=84.42669604  |r|=63778.9645
+iter=   300  |r|/|b|=75.2646499  |r|=56857.62512
+iter=   350  |r|/|b|=55.72823693  |r|=42099.1157
+iter=   400  |r|/|b|=36.6787547  |r|=27708.45128
+iter=   450  |r|/|b|=23.26152422  |r|=17572.59252
+iter=   500  |r|/|b|=15.76771949  |r|=11911.50275
+iter=   550  |r|/|b|=9.256124165  |r|=6992.4093
+iter=   600  |r|/|b|=5.123408751  |r|=3870.407349
+iter=   650  |r|/|b|=2.477134446  |r|=1871.316506
+iter=   700  |r|/|b|=1.798209932  |r|=1358.432496
+iter=   750  |r|/|b|=1.601569937  |r|=1209.883567
+iter=   800  |r|/|b|=1.666521784  |r|=1258.95053
+iter=   850  |r|/|b|=1.291256019  |r|=975.461266
+iter=   900  |r|/|b|=0.9021019984  |r|=681.480314
+iter=   950  |r|/|b|=0.7378274462  |r|=557.3814055
+iter=  1000  |r|/|b|=0.5458338038  |r|=412.3424986
+iter=  1050  |r|/|b|=0.3928314113  |r|=296.7589851
+iter=  1100  |r|/|b|=0.2949977779  |r|=222.8519377
+iter=  1150  |r|/|b|=0.314364065  |r|=237.4819279
+iter=  1200  |r|/|b|=0.2225131237  |r|=168.0944213
+iter=  1250  |r|/|b|=0.08766049326  |r|=66.2218913
+iter=  1300  |r|/|b|=0.0734655819  |r|=55.49854441
+iter=  1350  |r|/|b|=0.05251120067  |r|=39.66885074
+iter=  1400  |r|/|b|=0.0423816683  |r|=32.01663744
+iter=  1450  |r|/|b|=0.03393870702  |r|=25.63852066
+iter=  1500  |r|/|b|=0.02487625443  |r|=18.79241783
+iter=  1550  |r|/|b|=0.02082296844  |r|=15.73041973
+iter=  1600  |r|/|b|=0.01986216755  |r|=15.00459615
+iter=  1650  |r|/|b|=0.01683257393  |r|=12.71593211
+iter=  1700  |r|/|b|=0.009587500233  |r|=7.242742706
+iter=  1750  |r|/|b|=0.004982986789  |r|=3.764327546
+iter=  1800  |r|/|b|=0.002427770758  |r|=1.8340254
+iter=  1850  |r|/|b|=0.001595261234  |r|=1.205117746
+iter=  1900  |r|/|b|=0.0009952191127  |r|=0.7518243332
+iter=  1950  |r|/|b|=0.0005578059492  |r|=0.4213866881
+iter=  2000  |r|/|b|=0.0003797985657  |r|=0.2869135045
+iter=  2050  |r|/|b|=0.0002098304204  |r|=0.1585134509
+iter=  2100  |r|/|b|=0.0001435334929  |r|=0.108430366
+iter=  2150  |r|/|b|=0.0001132565826  |r|=0.08555809832
+iter=  2200  |r|/|b|=8.480861826e-05  |r|=0.06406748228
+iter=  2250  |r|/|b|=5.57396837e-05  |r|=0.042107763
+iter=  2300  |r|/|b|=3.187453789e-05  |r|=0.02407917301
+iter=  2350  |r|/|b|=2.217765955e-05  |r|=0.01675380214
+iter=  2400  |r|/|b|=1.819905022e-05  |r|=0.01374821747
+iter=  2450  |r|/|b|=1.20282991e-05  |r|=0.009086610013
+iter=  2500  |r|/|b|=7.966370325e-06  |r|=0.006018082834
+iter=  2550  |r|/|b|=4.355151767e-06  |r|=0.003290038376
+iter=  2600  |r|/|b|=2.285930432e-06  |r|=0.001726874113
+iter=  2650  |r|/|b|=1.333801582e-06  |r|=0.001007601715
+iter=  2700  |r|/|b|=8.516983679e-07  |r|=0.0006434035976
+iter=  2750  |r|/|b|=6.024446134e-07  |r|=0.0004551083415
+iter=  2800  |r|/|b|=4.324654737e-07  |r|=0.0003266999822
+iter=  2850  |r|/|b|=2.521005213e-07  |r|=0.0001904458062
+iter=  2900  |r|/|b|=1.10637857e-07  |r|=8.357981875e-05
+iter=  2950  |r|/|b|=5.05741518e-08  |r|=3.820553431e-05
+iter=  3000  |r|/|b|=2.819976201e-08  |r|=2.130311506e-05
+iter=  3050  |r|/|b|=1.434253912e-08  |r|=1.08348702e-05
+final |r|/|b|=9.865731304e-09
+solve time: 81.93743221 s
+iterations: 3076
+
+
+PS:
+
+Read file <./log2/part1-800x1200-p1.err> for stderr output of this job.
+

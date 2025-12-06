@@ -1,0 +1,16 @@
+\babel@toc {russian}{}\relax 
+\contentsline {section}{\numberline {1}Введение}{3}{section.1}%
+\contentsline {section}{\numberline {2}Математическая постановка задачи}{3}{section.2}%
+\contentsline {section}{\numberline {3}Краткое описание численного метода решения}{3}{section.3}%
+\contentsline {paragraph}{Практическое вычисление $a_{i,j}$ и $b_{i,j}$.}{4}{section*.5}%
+\contentsline {paragraph}{Практическое вычисление $F_{ij}$.}{5}{section*.6}%
+\contentsline {paragraph}{Выбор $\varepsilon $.}{5}{section*.7}%
+\contentsline {section}{\numberline {4}Краткое описание реализации OpenMP-решения}{5}{section.4}%
+\contentsline {section}{\numberline {5}Результаты тестирования программы}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Сходимость по сетке и корректность}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Сравнение последовательной и параллельной версий}{6}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Визуализация решения}{6}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Анализ ускорения OpenMP-реализации}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Strong scaling: сетка $400{\times }600$}{10}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Strong scaling: сетка $800{\times }1200$}{11}{subsection.6.2}%
+\contentsline {section}{\numberline {7}Заключение}{11}{section.7}%

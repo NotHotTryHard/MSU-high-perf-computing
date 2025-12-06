@@ -1,0 +1,56 @@
+Sender: LSF System <lsfadmin@polus-c4-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1372054: <solution2_p4_40x40_part3> in cluster <MSUCluster> Done
+
+Job <solution2_p4_40x40_part3> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sat Nov 29 02:34:16 2025
+Job was executed on host(s) <4*polus-c4-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sat Nov 29 02:34:32 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sat Nov 29 02:34:32 2025
+Terminated at Sat Nov 29 02:34:34 2025
+Results reported at Sat Nov 29 02:34:34 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J solution2_p4_40x40_part3
+#BSUB -n 4 -q normal
+#BSUB -W 00:10
+#BSUB -o ./log2/part3-40x40-p4.out
+#BSUB -e ./log2/part3-40x40-p4.err
+#BSUB -R "span[hosts=1]"
+mpirun -np 4 ./solution2 40 40
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   0.46 sec.
+    Max Memory :                                 1 MB
+    Average Memory :                             1.00 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              1
+    Max Threads :                                1
+    Run time :                                   1 sec.
+    Turnaround time :                            18 sec.
+
+The output (if any) follows:
+
+Grid: 40 x 40
+MPI processes: 4
+iter=     0  |r|/|b|=4.531842872  |r|=140.6440798
+iter=    50  |r|/|b|=0.02176011118  |r|=0.6753170618
+iter=   100  |r|/|b|=3.4278864e-06  |r|=0.0001063831959
+final |r|/|b|=9.801535517e-09
+solve time: 0.006861001253 s
+iterations: 123
+
+
+PS:
+
+Read file <./log2/part3-40x40-p4.err> for stderr output of this job.
+

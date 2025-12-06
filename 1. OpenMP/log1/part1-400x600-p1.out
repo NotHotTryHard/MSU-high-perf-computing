@@ -1,0 +1,246 @@
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346335: <sol1_p1_400x600_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p1_400x600_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:50:30 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 17:50:31 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 17:50:31 2025
+Terminated at Sun Nov 23 17:50:42 2025
+Results reported at Sun Nov 23 17:50:42 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_400x600_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-400x600-p1.out
+#BSUB -e ./log/part1-400x600-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 400 600
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   10.01 sec.
+    Max Memory :                                 22 MB
+    Average Memory :                             16.75 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                5
+    Run time :                                   14 sec.
+    Turnaround time :                            12 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=18.3762452  |r|=6942.586949
+iter=    50  |r|/|b|=39.98606923  |r|=15106.82728
+iter=   100  |r|/|b|=34.68264498  |r|=13103.18162
+iter=   150  |r|/|b|=27.74936493  |r|=10483.77276
+iter=   200  |r|/|b|=17.18073548  |r|=6490.920673
+iter=   250  |r|/|b|=7.536872433  |r|=2847.447431
+iter=   300  |r|/|b|=2.756417338  |r|=1041.380697
+iter=   350  |r|/|b|=1.131634281  |r|=427.5339876
+iter=   400  |r|/|b|=0.8042385776  |r|=303.8431513
+iter=   450  |r|/|b|=0.5922782714  |r|=223.7640689
+iter=   500  |r|/|b|=0.2059903374  |r|=77.82361481
+iter=   550  |r|/|b|=0.1139165132  |r|=43.03791603
+iter=   600  |r|/|b|=0.0756286191  |r|=28.57266314
+iter=   650  |r|/|b|=0.03796655155  |r|=14.34384894
+iter=   700  |r|/|b|=0.02603666751  |r|=9.836711801
+iter=   750  |r|/|b|=0.02254303283  |r|=8.516808726
+iter=   800  |r|/|b|=0.01648987428  |r|=6.229911752
+iter=   850  |r|/|b|=0.004308783626  |r|=1.627868187
+iter=   900  |r|/|b|=0.001301267943  |r|=0.4916219683
+iter=   950  |r|/|b|=0.0005067863828  |r|=0.1914650402
+iter=  1000  |r|/|b|=0.0002200831884  |r|=0.08314792575
+iter=  1050  |r|/|b|=0.0001182340336  |r|=0.04466908497
+iter=  1100  |r|/|b|=5.108923959e-05  |r|=0.01930163013
+iter=  1150  |r|/|b|=2.106144367e-05  |r|=0.007957060996
+iter=  1200  |r|/|b|=1.015170555e-05  |r|=0.003835337291
+iter=  1250  |r|/|b|=4.777040594e-06  |r|=0.001804776728
+iter=  1300  |r|/|b|=1.381554536e-06  |r|=0.0005219544245
+iter=  1350  |r|/|b|=5.115612222e-07  |r|=0.0001932689853
+iter=  1400  |r|/|b|=1.626324763e-07  |r|=6.144291691e-05
+iter=  1450  |r|/|b|=5.028805625e-08  |r|=1.899894125e-05
+iter=  1500  |r|/|b|=1.805738391e-08  |r|=6.82212043e-06
+final |r|/|b|=9.966216115e-09
+solve time: 9.474669747 s
+iterations: 1520
+
+
+PS:
+
+Read file <./log/part1-400x600-p1.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346635: <sol1_p1_400x600_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p1_400x600_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:56 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:57 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:51:57 2025
+Terminated at Sun Nov 23 18:52:10 2025
+Results reported at Sun Nov 23 18:52:10 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_400x600_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-400x600-p1.out
+#BSUB -e ./log/part1-400x600-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 400 600
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   10.54 sec.
+    Max Memory :                                 22 MB
+    Average Memory :                             16.75 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                5
+    Run time :                                   14 sec.
+    Turnaround time :                            14 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=18.3762452  |r|=6942.586949
+iter=    50  |r|/|b|=39.98606923  |r|=15106.82728
+iter=   100  |r|/|b|=34.68264498  |r|=13103.18162
+iter=   150  |r|/|b|=27.74936493  |r|=10483.77276
+iter=   200  |r|/|b|=17.18073548  |r|=6490.920673
+iter=   250  |r|/|b|=7.536872433  |r|=2847.447431
+iter=   300  |r|/|b|=2.756417338  |r|=1041.380697
+iter=   350  |r|/|b|=1.131634281  |r|=427.5339876
+iter=   400  |r|/|b|=0.8042385776  |r|=303.8431513
+iter=   450  |r|/|b|=0.5922782714  |r|=223.7640689
+iter=   500  |r|/|b|=0.2059903374  |r|=77.82361481
+iter=   550  |r|/|b|=0.1139165132  |r|=43.03791603
+iter=   600  |r|/|b|=0.0756286191  |r|=28.57266314
+iter=   650  |r|/|b|=0.03796655155  |r|=14.34384894
+iter=   700  |r|/|b|=0.02603666751  |r|=9.836711801
+iter=   750  |r|/|b|=0.02254303283  |r|=8.516808726
+iter=   800  |r|/|b|=0.01648987428  |r|=6.229911752
+iter=   850  |r|/|b|=0.004308783626  |r|=1.627868187
+iter=   900  |r|/|b|=0.001301267943  |r|=0.4916219683
+iter=   950  |r|/|b|=0.0005067863828  |r|=0.1914650402
+iter=  1000  |r|/|b|=0.0002200831884  |r|=0.08314792575
+iter=  1050  |r|/|b|=0.0001182340336  |r|=0.04466908497
+iter=  1100  |r|/|b|=5.108923959e-05  |r|=0.01930163013
+iter=  1150  |r|/|b|=2.106144367e-05  |r|=0.007957060996
+iter=  1200  |r|/|b|=1.015170555e-05  |r|=0.003835337291
+iter=  1250  |r|/|b|=4.777040594e-06  |r|=0.001804776728
+iter=  1300  |r|/|b|=1.381554536e-06  |r|=0.0005219544245
+iter=  1350  |r|/|b|=5.115612222e-07  |r|=0.0001932689853
+iter=  1400  |r|/|b|=1.626324763e-07  |r|=6.144291691e-05
+iter=  1450  |r|/|b|=5.028805625e-08  |r|=1.899894125e-05
+iter=  1500  |r|/|b|=1.805738391e-08  |r|=6.82212043e-06
+final |r|/|b|=9.966216115e-09
+solve time: 9.995982736 s
+iterations: 1520
+
+
+PS:
+
+Read file <./log/part1-400x600-p1.err> for stderr output of this job.
+
+Sender: LSF System <lsfadmin@polus-c3-ib.bmc.hpc.cs.msu.ru>
+Subject: Job 1346655: <sol1_p1_400x600_part1> in cluster <MSUCluster> Done
+
+Job <sol1_p1_400x600_part1> was submitted from host <polus-ib.bmc.hpc.cs.msu.ru> by user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:51:58 2025
+Job was executed on host(s) <polus-c3-ib.bmc.hpc.cs.msu.ru>, in queue <normal>, as user <edu-cmc-skmodel25-616-10> in cluster <MSUCluster> at Sun Nov 23 18:52:57 2025
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the home directory.
+</home_edu/edu-cmc-skmodel25-616/edu-cmc-skmodel25-616-10> was used as the working directory.
+Started at Sun Nov 23 18:52:57 2025
+Terminated at Sun Nov 23 18:53:10 2025
+Results reported at Sun Nov 23 18:53:10 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#BSUB -J sol1_p1_400x600_part1
+#BSUB -n 1 -q normal
+#BSUB -W 00:32
+#BSUB -o ./log/part1-400x600-p1.out
+#BSUB -e ./log/part1-400x600-p1.err
+#BSUB -R "span[hosts=1]"
+OMP_NUM_THREADS=1 ./sol1 400 600
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   10.57 sec.
+    Max Memory :                                 22 MB
+    Average Memory :                             16.75 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                5
+    Run time :                                   13 sec.
+    Turnaround time :                            72 sec.
+
+The output (if any) follows:
+
+iter=     0  |r|/|b|=18.3762452  |r|=6942.586949
+iter=    50  |r|/|b|=39.98606923  |r|=15106.82728
+iter=   100  |r|/|b|=34.68264498  |r|=13103.18162
+iter=   150  |r|/|b|=27.74936493  |r|=10483.77276
+iter=   200  |r|/|b|=17.18073548  |r|=6490.920673
+iter=   250  |r|/|b|=7.536872433  |r|=2847.447431
+iter=   300  |r|/|b|=2.756417338  |r|=1041.380697
+iter=   350  |r|/|b|=1.131634281  |r|=427.5339876
+iter=   400  |r|/|b|=0.8042385776  |r|=303.8431513
+iter=   450  |r|/|b|=0.5922782714  |r|=223.7640689
+iter=   500  |r|/|b|=0.2059903374  |r|=77.82361481
+iter=   550  |r|/|b|=0.1139165132  |r|=43.03791603
+iter=   600  |r|/|b|=0.0756286191  |r|=28.57266314
+iter=   650  |r|/|b|=0.03796655155  |r|=14.34384894
+iter=   700  |r|/|b|=0.02603666751  |r|=9.836711801
+iter=   750  |r|/|b|=0.02254303283  |r|=8.516808726
+iter=   800  |r|/|b|=0.01648987428  |r|=6.229911752
+iter=   850  |r|/|b|=0.004308783626  |r|=1.627868187
+iter=   900  |r|/|b|=0.001301267943  |r|=0.4916219683
+iter=   950  |r|/|b|=0.0005067863828  |r|=0.1914650402
+iter=  1000  |r|/|b|=0.0002200831884  |r|=0.08314792575
+iter=  1050  |r|/|b|=0.0001182340336  |r|=0.04466908497
+iter=  1100  |r|/|b|=5.108923959e-05  |r|=0.01930163013
+iter=  1150  |r|/|b|=2.106144367e-05  |r|=0.007957060996
+iter=  1200  |r|/|b|=1.015170555e-05  |r|=0.003835337291
+iter=  1250  |r|/|b|=4.777040594e-06  |r|=0.001804776728
+iter=  1300  |r|/|b|=1.381554536e-06  |r|=0.0005219544245
+iter=  1350  |r|/|b|=5.115612222e-07  |r|=0.0001932689853
+iter=  1400  |r|/|b|=1.626324763e-07  |r|=6.144291691e-05
+iter=  1450  |r|/|b|=5.028805625e-08  |r|=1.899894125e-05
+iter=  1500  |r|/|b|=1.805738391e-08  |r|=6.82212043e-06
+final |r|/|b|=9.966216115e-09
+solve time: 10.02827592 s
+iterations: 1520
+
+
+PS:
+
+Read file <./log/part1-400x600-p1.err> for stderr output of this job.
+
