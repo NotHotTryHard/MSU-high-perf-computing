@@ -1,30 +1,86 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Парсинг логов из log2 и построение графиков ускорения (scaling)
-используя функции из hw1/plot_scaling.py
+Парсинг логов из log3 и построение графиков ускорения (scaling)
+для MPI + CUDA реализации
 """
 import os
 import re
 import sys
 from pathlib import Path
 
-# Добавляем путь к hw1 для импорта функций
-sys.path.insert(0, str(Path(__file__).parent.parent / 'hw1'))
-
 import matplotlib
 matplotlib.use("Agg")  # headless-safe
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-# Импортируем функции построения графиков
-from plot_scaling import plot_scaling
-from plot_solution import load_csv, grid_from_df
+
+def plot_scaling(p, t, title, output):
+    """
+    Построить график ускорения по временам t[p], где t[0] соответствует p[0]=1.
+    """
+    p = np.asarray(p, dtype=float)
+    t = np.asarray(t, dtype=float)
+
+    # Ускорение S_p = T_1 / T_p
+    s = t[0] / t
+
+    # Идеальное линейное ускорение: s = p
+    p_ideal = np.linspace(p.min(), p.max(), 200)
+    s_ideal = p_ideal
+
+    plt.figure(figsize=(8, 6))
+
+    # Идеальное ускорение
+    plt.plot(p_ideal, s_ideal, 'k--', linewidth=1.5,
+             label='Идеальное линейное ускорение', alpha=0.7)
+
+    # Фактическое ускорение
+    plt.plot(p, s, 'o-', linewidth=2, markersize=8,
+             label='Фактическое ускорение', color='steelblue')
+
+    plt.xlabel('Число процессов $p$', fontsize=12)
+    plt.ylabel('Ускорение $S_p$', fontsize=12)
+    plt.title(title, fontsize=13, pad=10)
+    plt.grid(True, alpha=0.3, linestyle=':')
+    plt.legend(loc='upper left', fontsize=10, framealpha=0.9)
+
+    # Небольшой запас по осям
+    plt.xlim(0, p.max() * 1.1)
+    plt.ylim(0, max(s) * 1.15)
+
+    plt.xticks(p)
+    plt.yticks(np.arange(0, max(2, int(s.max()) + 2)))
+
+    plt.tight_layout()
+    plt.savefig(output, dpi=150)
+    print(f"[ok] Сохранил: {output}")
+
+
+def load_csv(path: str):
+    """Загрузка CSV с решением"""
+    if not os.path.exists(path):
+        return None, None
+    df = pd.read_csv(path)
+    df["x"] = df["x"].round(12)
+    df["y"] = df["y"].round(12)
+    return df, path
+
+
+def grid_from_df(df: pd.DataFrame):
+    """Преобразование DataFrame в сетку для визуализации"""
+    table = df.pivot(index="y", columns="x", values="u").sort_index().sort_index(axis=1)
+    y = table.index.values
+    x = table.columns.values
+    U = table.values
+    Ny, Nx = U.shape
+    return x, y, U, Nx, Ny
 
 
 def parse_log_file(log_path):
     """
-    Парсит лог-файл и извлекает время решения (solve time).
+    Парсит лог-файл и извлекает время решения (solve time max over ranks).
     Возвращает None, если файл не найден или время не найдено.
     """
     if not os.path.exists(log_path):
@@ -33,7 +89,12 @@ def parse_log_file(log_path):
     with open(log_path, 'r') as f:
         content = f.read()
     
-    # Ищем строку вида "solve time: X.XXXXX s"
+    # Ищем строку вида "solve time (max over ranks): X.XXXXX s"
+    match = re.search(r'solve time \(max over ranks\):\s*([\d.]+)\s*s', content)
+    if match:
+        return float(match.group(1))
+    
+    # Попробуем также старый формат для совместимости
     match = re.search(r'solve time:\s*([\d.]+)\s*s', content)
     if match:
         return float(match.group(1))
@@ -112,8 +173,15 @@ def collect_part3_data(log_dir):
 
 
 def main():
-    log_dir = Path(__file__).parent / 'log2'
-    output_dir = Path(__file__).parent
+    # Определяем директорию с логами (проверяем вложенную структуру)
+    script_dir = Path(__file__).parent
+    log_dir = script_dir / 'log3'
+    
+    # Если вложенной директории нет, используем обычную
+    if not log_dir.exists():
+        log_dir = script_dir / 'log3'
+    
+    output_dir = script_dir
     
     print("Парсинг логов из:", log_dir)
     print()
@@ -141,7 +209,7 @@ def main():
         print(f"  Времена: {times_list}")
         
         output_file = output_dir / f'scaling_{grid_x}x{grid_y}.png'
-        title = f'График ускорения для сетки ${grid_x}\\times{grid_y}$'
+        title = f'График ускорения для сетки ${grid_x}\\times{grid_y}$ (MPI+CUDA)'
         
         plot_scaling(
             np.array(procs_list),
@@ -172,7 +240,7 @@ def main():
         print(f"  Времена: {times_list}")
         
         output_file = output_dir / f'scaling_part3_{grid_x}x{grid_y}.png'
-        title = f'График ускорения для сетки ${grid_x}\\times{grid_y}$ (part3)'
+        title = f'График ускорения для сетки ${grid_x}\\times{grid_y}$ (part3, MPI+CUDA)'
         
         plot_scaling(
             np.array(procs_list),
@@ -184,15 +252,23 @@ def main():
     
     # Ищем CSV файлы для построения графиков решения
     print("=== Поиск CSV файлов для графиков решения ===")
-    csv_files = list(output_dir.glob('solution*.csv'))
+    csv_files = list(output_dir.glob('sol3_*.csv'))
+    if not csv_files:
+        csv_files = list(output_dir.glob('solution*.csv'))
+    
     if csv_files:
         print(f"Найдено CSV файлов: {len(csv_files)}")
         for csv_file in csv_files:
             try:
-                df, used = load_csv(str(csv_file))
+                result = load_csv(str(csv_file))
+                if result[0] is None:
+                    print(f"  [warning] Не удалось загрузить {csv_file.name}")
+                    continue
+                    
+                df, used = result
                 x, y, U, Nx, Ny = grid_from_df(df)
                 
-                output_png = output_dir / f'sol_{Nx}x{Ny}.png'
+                output_png = output_dir / f'sol3_{Nx}x{Ny}.png'
                 print(f"  Построение графика из {csv_file.name} -> {output_png.name}")
                 
                 plt.figure(figsize=(7, 6), dpi=150)
@@ -202,7 +278,7 @@ def main():
                 plt.colorbar(im, shrink=0.85, label="u")
                 plt.xlabel("x")
                 plt.ylabel("y")
-                plt.title(f"u(x,y), сетка {Nx}×{Ny}")
+                plt.title(f"u(x,y), сетка {Nx}×{Ny} (MPI+CUDA)")
                 plt.tight_layout()
                 plt.savefig(output_png, dpi=150)
                 plt.close()
