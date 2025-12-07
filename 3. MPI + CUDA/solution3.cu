@@ -203,6 +203,13 @@ int main(int argc, char** argv) {
 
     const int local_NN = local_M * N_in;
 
+    // Аккумуляторы для измерения времени (MPI_Wtime) в GPU/CPU ветках
+    double time_comm_halo = 0.0;      // время коммуникаций halo (MPI)
+    double time_h2d = 0.0;            // время копий host->device
+    double time_d2h = 0.0;            // время копий device->host
+    double time_kernel_matvec = 0.0;  // время CUDA-ядра matvec
+    double time_kernel_vec = 0.0;     // время CUDA-ядер векторных операций PCG
+
     // Указатели на данные на устройстве (GPU)
     double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr, *d_F = nullptr;
     double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
@@ -338,6 +345,7 @@ int main(int argc, char** argv) {
     auto exchange_halo_cpu = [&](const std::vector<double>& v) {
         // Отправляем первую строку левому соседу, получаем от левого соседа
         // Отправляем последнюю строку правому соседу, получаем от правого соседа
+        double t0 = MPI_Wtime();
         MPI_Request reqs[4];
         int req_count = 0;
 
@@ -363,27 +371,36 @@ int main(int argc, char** argv) {
         }
 
         MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+        double t1 = MPI_Wtime();
+        time_comm_halo += (t1 - t0);
     };
 
     // Функция обмена halo для вектора на GPU (d_v)
     auto exchange_halo_gpu = [&](double* d_v) {
         if (!use_gpu) return;
 
+        double t_copy0, t_copy1;
         MPI_Request reqs[4];
         int req_count = 0;
 
         // Скопировать граничные строки с GPU на хост и отправить соседям
         if (left_rank != MPI_PROC_NULL) {
+            t_copy0 = MPI_Wtime();
             cudaMemcpy(send_left.data(),
                        d_v + ID_local(1, 1, local_M),
                        N_in * sizeof(double), cudaMemcpyDeviceToHost);
+            t_copy1 = MPI_Wtime();
+            time_d2h += (t_copy1 - t_copy0);
             MPI_Isend(send_left.data(), N_in, MPI_DOUBLE,
                       left_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
         }
         if (right_rank != MPI_PROC_NULL) {
+            t_copy0 = MPI_Wtime();
             cudaMemcpy(send_right.data(),
                        d_v + ID_local(local_M, 1, local_M),
                        N_in * sizeof(double), cudaMemcpyDeviceToHost);
+            t_copy1 = MPI_Wtime();
+            time_d2h += (t_copy1 - t_copy0);
             MPI_Isend(send_right.data(), N_in, MPI_DOUBLE,
                       right_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
         }
@@ -398,16 +415,25 @@ int main(int argc, char** argv) {
                       right_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
         }
 
+        double t_comm0 = MPI_Wtime();
         MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+        double t_comm1 = MPI_Wtime();
+        time_comm_halo += (t_comm1 - t_comm0);
 
         // Копируем полученные halo-строки на устройство
         if (left_rank != MPI_PROC_NULL) {
+            t_copy0 = MPI_Wtime();
             cudaMemcpy(d_recv_left, recv_left.data(),
                        N_in * sizeof(double), cudaMemcpyHostToDevice);
+            t_copy1 = MPI_Wtime();
+            time_h2d += (t_copy1 - t_copy0);
         }
         if (right_rank != MPI_PROC_NULL) {
+            t_copy0 = MPI_Wtime();
             cudaMemcpy(d_recv_right, recv_right.data(),
                        N_in * sizeof(double), cudaMemcpyHostToDevice);
+            t_copy1 = MPI_Wtime();
+            time_h2d += (t_copy1 - t_copy0);
         }
     };
 
@@ -471,7 +497,10 @@ int main(int argc, char** argv) {
         } else {
             // GPU-вариант: копируем вектор v на устройство, выполняем halo-обмен и ядро
             std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
+            double t0 = MPI_Wtime();
             cudaMemcpy(d_p, v.data(), vec_bytes, cudaMemcpyHostToDevice);
+            double t1 = MPI_Wtime();
+            time_h2d += (t1 - t0);
 
             // halo-обмен через CPU-буферы и копирование на GPU
             exchange_halo_gpu(d_p);
@@ -482,6 +511,7 @@ int main(int argc, char** argv) {
                 (local_M + block.y - 1) / block.y
             );
 
+            double tk0 = MPI_Wtime();
             matvec_kernel<<<grid, block>>>(
                 d_p, d_Ap,
                 d_ax, d_by, d_A_diag,
@@ -490,9 +520,14 @@ int main(int argc, char** argv) {
                 hx, hy
             );
             cudaDeviceSynchronize();
+            double tk1 = MPI_Wtime();
+            time_kernel_matvec += (tk1 - tk0);
 
             // Копируем результат обратно на хостовый вектор Av
+            t0 = MPI_Wtime();
             cudaMemcpy(Av.data(), d_Ap, vec_bytes, cudaMemcpyDeviceToHost);
+            t1 = MPI_Wtime();
+            time_d2h += (t1 - t0);
         }
     };
 
@@ -600,15 +635,24 @@ int main(int argc, char** argv) {
             const double alpha = rz_old / pAp;
 
             // Копируем текущие p и Ap на устройство и обновляем u, r на GPU
+            double t0 = MPI_Wtime(), t1;
             cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
             cudaMemcpy(d_Ap, Ap.data(), vec_bytes, cudaMemcpyHostToDevice);
+            t1 = MPI_Wtime();
+            time_h2d += (t1 - t0);
 
+            double tk0 = MPI_Wtime();
             update_ur_kernel<<<blocks, threads>>>(d_u, d_r, d_p, d_Ap, alpha, local_NN);
             cudaDeviceSynchronize();
+            double tk1 = MPI_Wtime();
+            time_kernel_vec += (tk1 - tk0);
 
             // Копируем обновленные u и r обратно на хост для расчета норм и скалярных произведений
+            t0 = MPI_Wtime();
             cudaMemcpy(u.data(), d_u, vec_bytes, cudaMemcpyDeviceToHost);
             cudaMemcpy(r.data(), d_r, vec_bytes, cudaMemcpyDeviceToHost);
+            t1 = MPI_Wtime();
+            time_d2h += (t1 - t0);
 
             const double rnorm = std::sqrt(dot(r, r));
             if (rank == 0 && it % 50 == 0) {
@@ -624,29 +668,77 @@ int main(int argc, char** argv) {
             }
 
             // Предобуславливание на GPU: z = r / A_diag
+            t0 = MPI_Wtime();
             cudaMemcpy(d_r, r.data(), vec_bytes, cudaMemcpyHostToDevice);
+            t1 = MPI_Wtime();
+            time_h2d += (t1 - t0);
+
+            tk0 = MPI_Wtime();
             precond_kernel<<<blocks, threads>>>(d_z, d_r, d_A_diag, local_NN);
             cudaDeviceSynchronize();
+            tk1 = MPI_Wtime();
+            time_kernel_vec += (tk1 - tk0);
+
+            t0 = MPI_Wtime();
             cudaMemcpy(z.data(), d_z, vec_bytes, cudaMemcpyDeviceToHost);
+            t1 = MPI_Wtime();
+            time_d2h += (t1 - t0);
 
             const double rz_new = dot(r, z);
             const double beta = rz_new / rz_old;
 
             // Обновление направления p на GPU
+            t0 = MPI_Wtime();
             cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
             cudaMemcpy(d_z, z.data(), vec_bytes, cudaMemcpyHostToDevice);
+            t1 = MPI_Wtime();
+            time_h2d += (t1 - t0);
+
+            tk0 = MPI_Wtime();
             update_p_kernel<<<blocks, threads>>>(d_p, d_z, beta, local_NN);
             cudaDeviceSynchronize();
+            tk1 = MPI_Wtime();
+            time_kernel_vec += (tk1 - tk0);
+
+            t0 = MPI_Wtime();
             cudaMemcpy(p.data(), d_p, vec_bytes, cudaMemcpyDeviceToHost);
+            t1 = MPI_Wtime();
+            time_d2h += (t1 - t0);
 
             rz_old = rz_new;
         }
     }
     double t1 = MPI_Wtime();
 
+    // Сводка по времени работы
+    double solve_time = t1 - t0;
+    double max_solve_time = 0.0;
+    MPI_Reduce(&solve_time, &max_solve_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
     if (rank == 0) {
-        std::cout << "solve time: " << (t1 - t0) << " s\n";
+        std::cout << "solve time (max over ranks): " << max_solve_time << " s\n";
         std::cout << "iterations: " << it << "\n";
+    }
+
+    // Сбор статистики по GPU-времени (если использовался GPU)
+    if (use_gpu) {
+        double max_comm_halo = 0.0, max_h2d = 0.0, max_d2h = 0.0;
+        double max_k_matvec = 0.0, max_k_vec = 0.0;
+
+        MPI_Reduce(&time_comm_halo, &max_comm_halo, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_h2d,       &max_h2d,       1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_d2h,       &max_d2h,       1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_kernel_matvec, &max_k_matvec, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_kernel_vec,    &max_k_vec,    1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+        if (rank == 0) {
+            std::cout << "---- GPU/MPI timing breakdown (max over ranks) ----\n";
+            std::cout << "halo MPI comm time: " << max_comm_halo << " s\n";
+            std::cout << "H->D memcpy time: " << max_h2d << " s\n";
+            std::cout << "D->H memcpy time: " << max_d2h << " s\n";
+            std::cout << "matvec kernel time: " << max_k_matvec << " s\n";
+            std::cout << "vector kernels time: " << max_k_vec << " s\n";
+        }
     }
 
     // Сбор решения на процессе 0 и запись в файл
