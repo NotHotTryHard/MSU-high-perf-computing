@@ -5,8 +5,10 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <mpi.h>
 #include <vector>
+
+#include <mpi.h>
+#include <cuda_runtime.h>
 
 static int M_in = 80, N_in = 80;
 inline int ID(int i, int j) { return (i - 1) * N_in + (j - 1); }
@@ -45,6 +47,27 @@ int main(int argc, char** argv) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // Инициализация CUDA-устройств: один GPU на процесс, если доступен
+    int dev_count = 0;
+    cudaError_t cerr = cudaGetDeviceCount(&dev_count);
+    if (cerr != cudaSuccess || dev_count == 0) {
+        if (rank == 0) {
+            std::cerr << "Warning: no CUDA devices visible, running as pure MPI.\n";
+        }
+    } else {
+        int dev_id = rank % dev_count;
+        cudaError_t serr = cudaSetDevice(dev_id);
+        if (serr != cudaSuccess) {
+            if (rank == 0) {
+                std::cerr << "Warning: cudaSetDevice failed, running as pure MPI.\n";
+            }
+        } else if (rank == 0) {
+            cudaDeviceProp prop{};
+            cudaGetDeviceProperties(&prop, dev_id);
+            std::cout << "Using CUDA device " << dev_id << " (" << prop.name << ")\n";
+        }
+    }
 
     if (argc >= 3) {
         M_in = std::atoi(argv[1]);
@@ -152,7 +175,8 @@ int main(int argc, char** argv) {
             const double aR = ax[IX_X_local(i_local, j, local_M)];
             const double bD = by[IX_Y_local(i_local, j - 1, local_M)];
             const double bU = by[IX_Y_local(i_local, j, local_M)];
-            A_diag[ID_local(i_local, j, local_M)] = (aL + aR) / (hx * hx) + (bD + bU) / (hy * hy);
+            A_diag[ID_local(i_local, j, local_M)] =
+                (aL + aR) / (hx * hx) + (bD + bU) / (hy * hy);
         }
     }
 
@@ -209,14 +233,17 @@ int main(int argc, char** argv) {
                 const int k = ID_local(i_local, j, local_M);
                 const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
                 const double aR = ax[IX_X_local(i_local, j, local_M)];
-                const double bD = by[IX_Y_local(i_local, j - 1, local_M)];
-                const double bU = by[IX_Y_local(i_local, j, local_M)];
+                const double bD =
+                    by[IX_Y_local(i_local, j - 1, local_M)];
+                const double bU =
+                    by[IX_Y_local(i_local, j, local_M)];
                 
                 double s = A_diag[k] * v[k];
                 
                 // Левый сосед по i
                 if (i_local > 1) {
-                    s += (-aL / (hx * hx)) * v[ID_local(i_local - 1, j, local_M)];
+                    s += (-aL / (hx * hx)) *
+                         v[ID_local(i_local - 1, j, local_M)];
                 } else if (i_global > 1) {
                     // Берем из halo от левого процесса
                     s += (-aL / (hx * hx)) * recv_left[j - 1];
@@ -224,7 +251,8 @@ int main(int argc, char** argv) {
                 
                 // Правый сосед по i
                 if (i_local < local_M) {
-                    s += (-aR / (hx * hx)) * v[ID_local(i_local + 1, j, local_M)];
+                    s += (-aR / (hx * hx)) *
+                         v[ID_local(i_local + 1, j, local_M)];
                 } else if (i_global < M_in) {
                     // Берем из halo от правого процесса
                     s += (-aR / (hx * hx)) * recv_right[j - 1];
@@ -232,12 +260,14 @@ int main(int argc, char** argv) {
                 
                 // Нижний сосед по j (локальный)
                 if (j > 1) {
-                    s += (-bD / (hy * hy)) * v[ID_local(i_local, j - 1, local_M)];
+                    s += (-bD / (hy * hy)) *
+                         v[ID_local(i_local, j - 1, local_M)];
                 }
                 
                 // Верхний сосед по j (локальный)
                 if (j < N_in) {
-                    s += (-bU / (hy * hy)) * v[ID_local(i_local, j + 1, local_M)];
+                    s += (-bU / (hy * hy)) *
+                         v[ID_local(i_local, j + 1, local_M)];
                 }
                 
                 Av[k] = s;
@@ -380,4 +410,5 @@ int main(int argc, char** argv) {
     MPI_Finalize();
     return 0;
 }
+
 
