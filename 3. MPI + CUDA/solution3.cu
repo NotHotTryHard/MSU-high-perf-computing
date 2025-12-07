@@ -41,6 +41,68 @@ inline int IX_Y_local(int i_local, int j_face, int local_M) {
     return (i_local - 1) * (N_in + 1) + j_face; 
 }
 
+// CUDA-ядро матрично-векторного умножения с учетом halo-строк
+__global__
+void matvec_kernel(const double* __restrict__ v,
+                   double* __restrict__ Av,
+                   const double* __restrict__ ax,
+                   const double* __restrict__ by,
+                   const double* __restrict__ A_diag,
+                   const double* __restrict__ recv_left,
+                   const double* __restrict__ recv_right,
+                   int local_M, int N_in, int M_in, int i_start,
+                   double hx, double hy) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x + 1;      // 1..N_in
+    int i_local = blockIdx.y * blockDim.y + threadIdx.y + 1; // 1..local_M
+    if (j > N_in || i_local > local_M) return;
+
+    int i_global = i_start + i_local - 1;
+    int k = (i_local - 1) * N_in + (j - 1);
+
+    // Индексы для коэффициентов
+    int idx_aL = (i_local - 1) * N_in + (j - 1);     // (i_local-1, j)
+    int idx_aR = i_local * N_in + (j - 1);           // (i_local,   j)
+    int idx_bD = (i_local - 1) * (N_in + 1) + (j - 1); // (i_local, j-1)
+    int idx_bU = (i_local - 1) * (N_in + 1) + j;       // (i_local, j)
+
+    double aL = ax[idx_aL];
+    double aR = ax[idx_aR];
+    double bD = by[idx_bD];
+    double bU = by[idx_bU];
+
+    double s = A_diag[k] * v[k];
+
+    // Левый сосед по i
+    if (i_local > 1) {
+        int kL = (i_local - 2) * N_in + (j - 1);
+        s += (-aL / (hx * hx)) * v[kL];
+    } else if (i_global > 1) {
+        s += (-aL / (hx * hx)) * recv_left[j - 1];
+    }
+
+    // Правый сосед по i
+    if (i_local < local_M) {
+        int kR = i_local * N_in + (j - 1);
+        s += (-aR / (hx * hx)) * v[kR];
+    } else if (i_global < M_in) {
+        s += (-aR / (hx * hx)) * recv_right[j - 1];
+    }
+
+    // Нижний сосед по j (локальный)
+    if (j > 1) {
+        int kD = (i_local - 1) * N_in + (j - 2);
+        s += (-bD / (hy * hy)) * v[kD];
+    }
+
+    // Верхний сосед по j (локальный)
+    if (j < N_in) {
+        int kU = (i_local - 1) * N_in + j;
+        s += (-bU / (hy * hy)) * v[kU];
+    }
+
+    Av[k] = s;
+}
+
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
 
@@ -107,6 +169,7 @@ int main(int argc, char** argv) {
     // Указатели на данные на устройстве (GPU)
     double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr, *d_F = nullptr;
     double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
+    double *d_recv_left = nullptr, *d_recv_right = nullptr;
 
     // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
     std::vector<double> ax((local_M + 1) * N_in, 0.0);
@@ -206,7 +269,7 @@ int main(int argc, char** argv) {
         cudaMemcpy(d_A_diag, A_diag.data(), diag_bytes, cudaMemcpyHostToDevice);
         cudaMemcpy(d_F, F.data(), f_bytes, cudaMemcpyHostToDevice);
 
-        // Векторы PCG на устройстве
+        // Векторы PCG на устройстве (пока используем d_p/d_Ap как рабочие буферы для matvec)
         cudaMalloc(&d_u, vec_bytes);
         cudaMalloc(&d_r, vec_bytes);
         cudaMalloc(&d_z, vec_bytes);
@@ -218,6 +281,10 @@ int main(int argc, char** argv) {
         cudaMemset(d_z, 0, vec_bytes);
         cudaMemset(d_p, 0, vec_bytes);
         cudaMemset(d_Ap, 0, vec_bytes);
+
+        // Halo-буферы на устройстве
+        cudaMalloc(&d_recv_left,  N_in * sizeof(double));
+        cudaMalloc(&d_recv_right, N_in * sizeof(double));
     }
 
     // Определяем соседей
@@ -227,9 +294,11 @@ int main(int argc, char** argv) {
     // Буферы для halo-обмена (по одной строке = N_in элементов)
     std::vector<double> recv_left(N_in, 0.0);   // от левого соседа (строка i_start-1)
     std::vector<double> recv_right(N_in, 0.0);  // от правого соседа (строка i_end+1)
+    std::vector<double> send_left(N_in, 0.0);   // буферы для отправки на CPU
+    std::vector<double> send_right(N_in, 0.0);
 
     // Функция обмена halo
-    auto exchange_halo = [&](const std::vector<double>& v) {
+    auto exchange_halo_cpu = [&](const std::vector<double>& v) {
         // Отправляем первую строку левому соседу, получаем от левого соседа
         // Отправляем последнюю строку правому соседу, получаем от правого соседа
         MPI_Request reqs[4];
@@ -259,59 +328,134 @@ int main(int argc, char** argv) {
         MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
     };
 
-    // Коэффициенты для halo-обмена (ax на границах)
+    // Функция обмена halo для вектора на GPU (d_v)
+    auto exchange_halo_gpu = [&](double* d_v) {
+        if (!use_gpu) return;
+
+        MPI_Request reqs[4];
+        int req_count = 0;
+
+        // Скопировать граничные строки с GPU на хост и отправить соседям
+        if (left_rank != MPI_PROC_NULL) {
+            cudaMemcpy(send_left.data(),
+                       d_v + ID_local(1, 1, local_M),
+                       N_in * sizeof(double), cudaMemcpyDeviceToHost);
+            MPI_Isend(send_left.data(), N_in, MPI_DOUBLE,
+                      left_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        if (right_rank != MPI_PROC_NULL) {
+            cudaMemcpy(send_right.data(),
+                       d_v + ID_local(local_M, 1, local_M),
+                       N_in * sizeof(double), cudaMemcpyDeviceToHost);
+            MPI_Isend(send_right.data(), N_in, MPI_DOUBLE,
+                      right_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+
+        // Прием граничных строк от соседей на хост
+        if (left_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_left.data(), N_in, MPI_DOUBLE,
+                      left_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        if (right_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_right.data(), N_in, MPI_DOUBLE,
+                      right_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+
+        MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+
+        // Копируем полученные halo-строки на устройство
+        if (left_rank != MPI_PROC_NULL) {
+            cudaMemcpy(d_recv_left, recv_left.data(),
+                       N_in * sizeof(double), cudaMemcpyHostToDevice);
+        }
+        if (right_rank != MPI_PROC_NULL) {
+            cudaMemcpy(d_recv_right, recv_right.data(),
+                       N_in * sizeof(double), cudaMemcpyHostToDevice);
+        }
+    };
+
+    // Коэффициенты для halo-обмена (ax на границах) – пока не используются в CUDA-ветке,
+    // но могут пригодиться для дальнейшей оптимизации
     double aL_left_boundary = ax[IX_X_local(0, 1, local_M)];  // грань слева от первой строки
     double aR_right_boundary = ax[IX_X_local(local_M, 1, local_M)]; // грань справа от последней
 
     // Матрично-векторное умножение с обменом halo
     auto matvec = [&](const std::vector<double>& v, std::vector<double>& Av) {
-        exchange_halo(v);
-        
-        for (int i_local = 1; i_local <= local_M; ++i_local) {
-            int i_global = i_start + i_local - 1;
-            for (int j = 1; j <= N_in; ++j) {
-                const int k = ID_local(i_local, j, local_M);
-                const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
-                const double aR = ax[IX_X_local(i_local, j, local_M)];
-                const double bD =
-                    by[IX_Y_local(i_local, j - 1, local_M)];
-                const double bU =
-                    by[IX_Y_local(i_local, j, local_M)];
-                
-                double s = A_diag[k] * v[k];
-                
-                // Левый сосед по i
-                if (i_local > 1) {
-                    s += (-aL / (hx * hx)) *
-                         v[ID_local(i_local - 1, j, local_M)];
-                } else if (i_global > 1) {
-                    // Берем из halo от левого процесса
-                    s += (-aL / (hx * hx)) * recv_left[j - 1];
+        if (!use_gpu) {
+            // CPU-вариант (как в исходном MPI-коде)
+            exchange_halo_cpu(v);
+            
+            for (int i_local = 1; i_local <= local_M; ++i_local) {
+                int i_global = i_start + i_local - 1;
+                for (int j = 1; j <= N_in; ++j) {
+                    const int k = ID_local(i_local, j, local_M);
+                    const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
+                    const double aR = ax[IX_X_local(i_local, j, local_M)];
+                    const double bD =
+                        by[IX_Y_local(i_local, j - 1, local_M)];
+                    const double bU =
+                        by[IX_Y_local(i_local, j, local_M)];
+                    
+                    double s = A_diag[k] * v[k];
+                    
+                    // Левый сосед по i
+                    if (i_local > 1) {
+                        s += (-aL / (hx * hx)) *
+                             v[ID_local(i_local - 1, j, local_M)];
+                    } else if (i_global > 1) {
+                        // Берем из halo от левого процесса
+                        s += (-aL / (hx * hx)) * recv_left[j - 1];
+                    }
+                    
+                    // Правый сосед по i
+                    if (i_local < local_M) {
+                        s += (-aR / (hx * hx)) *
+                             v[ID_local(i_local + 1, j, local_M)];
+                    } else if (i_global < M_in) {
+                        // Берем из halo от правого процесса
+                        s += (-aR / (hx * hx)) * recv_right[j - 1];
+                    }
+                    
+                    // Нижний сосед по j (локальный)
+                    if (j > 1) {
+                        s += (-bD / (hy * hy)) *
+                             v[ID_local(i_local, j - 1, local_M)];
+                    }
+                    
+                    // Верхний сосед по j (локальный)
+                    if (j < N_in) {
+                        s += (-bU / (hy * hy)) *
+                             v[ID_local(i_local, j + 1, local_M)];
+                    }
+                    
+                    Av[k] = s;
                 }
-                
-                // Правый сосед по i
-                if (i_local < local_M) {
-                    s += (-aR / (hx * hx)) *
-                         v[ID_local(i_local + 1, j, local_M)];
-                } else if (i_global < M_in) {
-                    // Берем из halo от правого процесса
-                    s += (-aR / (hx * hx)) * recv_right[j - 1];
-                }
-                
-                // Нижний сосед по j (локальный)
-                if (j > 1) {
-                    s += (-bD / (hy * hy)) *
-                         v[ID_local(i_local, j - 1, local_M)];
-                }
-                
-                // Верхний сосед по j (локальный)
-                if (j < N_in) {
-                    s += (-bU / (hy * hy)) *
-                         v[ID_local(i_local, j + 1, local_M)];
-                }
-                
-                Av[k] = s;
             }
+        } else {
+            // GPU-вариант: копируем вектор v на устройство, выполняем halo-обмен и ядро
+            std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
+            cudaMemcpy(d_p, v.data(), vec_bytes, cudaMemcpyHostToDevice);
+
+            // halo-обмен через CPU-буферы и копирование на GPU
+            exchange_halo_gpu(d_p);
+
+            dim3 block(16, 16);
+            dim3 grid(
+                (N_in + block.x - 1) / block.x,
+                (local_M + block.y - 1) / block.y
+            );
+
+            matvec_kernel<<<grid, block>>>(
+                d_p, d_Ap,
+                d_ax, d_by, d_A_diag,
+                d_recv_left, d_recv_right,
+                local_M, N_in, M_in, i_start,
+                hx, hy
+            );
+            cudaDeviceSynchronize();
+
+            // Копируем результат обратно на хостовый вектор Av
+            cudaMemcpy(Av.data(), d_Ap, vec_bytes, cudaMemcpyDeviceToHost);
         }
     };
 
