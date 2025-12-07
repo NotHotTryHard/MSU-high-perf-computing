@@ -1,0 +1,383 @@
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <mpi.h>
+#include <vector>
+
+static int M_in = 80, N_in = 80;
+inline int ID(int i, int j) { return (i - 1) * N_in + (j - 1); }
+
+// Локальный индекс для процесса (i_local относительно локального диапазона)
+inline int ID_local(int i_local, int j, int local_M) { 
+    return (i_local - 1) * N_in + (j - 1); 
+}
+
+struct Box { double x0, x1, y0, y1; };
+
+// 10 варик: D = { x in (1,3), |y| < 0.5*sqrt(x^2-1) }
+inline double y_cap(double x) {
+    double s = x * x - 1.0;
+    return (s > 0.0) ? 0.5 * std::sqrt(s) : 0.0;
+}
+inline bool in_D(double x, double y) {
+    if (x <= 1.0 || x >= 3.0) return false;
+    return std::fabs(y) < y_cap(x);
+}
+
+inline int IX_X(int i_face, int j) { return i_face * N_in + (j - 1); }
+inline int IX_Y(int i, int j_face) { return (i - 1) * (N_in + 1) + j_face; }
+
+// Локальные версии индексации
+inline int IX_X_local(int i_face_local, int j, int local_M) { 
+    return i_face_local * N_in + (j - 1); 
+}
+inline int IX_Y_local(int i_local, int j_face, int local_M) { 
+    return (i_local - 1) * (N_in + 1) + j_face; 
+}
+
+int main(int argc, char** argv) {
+    MPI_Init(&argc, &argv);
+
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    if (argc >= 3) {
+        M_in = std::atoi(argv[1]);
+        N_in = std::atoi(argv[2]);
+    }
+
+    // Декомпозиция по строкам (i-направление)
+    // Каждый процесс получает диапазон строк [i_start, i_end]
+    int base_rows = M_in / size;
+    int remainder = M_in % size;
+    
+    int i_start = rank * base_rows + std::min(rank, remainder) + 1;
+    int local_M = base_rows + (rank < remainder ? 1 : 0);
+    int i_end = i_start + local_M - 1;
+
+    if (rank == 0) {
+        std::cout << "Grid: " << M_in << " x " << N_in << "\n";
+        std::cout << "MPI processes: " << size << "\n";
+    }
+
+    Box R;
+    R.x0 = 1.0; R.x1 = 3.0;
+    const double Ymax = 0.5 * std::sqrt(9.0 - 1.0);
+    R.y0 = -Ymax; R.y1 = Ymax;
+
+    const double hx = (R.x1 - R.x0) / (M_in + 1.0);
+    const double hy = (R.y1 - R.y0) / (N_in + 1.0);
+    const double h  = std::max(hx, hy);
+    const double eps = h * h;
+
+    const int local_NN = local_M * N_in;
+
+    // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
+    std::vector<double> ax((local_M + 1) * N_in, 0.0);
+    
+    for (int i_local = 0; i_local <= local_M; ++i_local) {
+        int i_global = i_start - 1 + i_local;  // глобальный индекс грани
+        for (int j = 1; j <= N_in; ++j) {
+            const double x_face = R.x0 + (i_global + 0.5) * hx;
+            const double y_low  = R.y0 + (j - 0.5) * hy;
+            const double y_high = y_low + hy;
+            const double yc = y_cap(x_face);
+
+            const double inter_low  = std::max(y_low,  -yc);
+            const double inter_high = std::min(y_high,  yc);
+            const double L = std::max(0.0, inter_high - inter_low);
+            const double frac = L / hy;
+
+            ax[IX_X_local(i_local, j, local_M)] = frac * 1.0 + (1.0 - frac) * (1.0 / eps);
+        }
+    }
+
+    // Локальные коэффициенты by: для строк от i_start до i_end
+    std::vector<double> by(local_M * (N_in + 1), 0.0);
+    
+    for (int i_local = 1; i_local <= local_M; ++i_local) {
+        int i_global = i_start + i_local - 1;
+        for (int j = 0; j <= N_in; ++j) {
+            const double y_face = R.y0 + (j + 0.5) * hy;
+            const double x_low  = R.x0 + (i_global - 0.5) * hx;
+            const double x_high = x_low + hx;
+
+            const double x_min_in = std::max(1.0, std::sqrt(1.0 + 4.0 * y_face * y_face));
+            const double inter_low  = std::max(x_low,  x_min_in);
+            const double inter_high = std::min(x_high, R.x1);
+            const double L = std::max(0.0, inter_high - inter_low);
+            const double frac = L / hx;
+
+            by[IX_Y_local(i_local, j, local_M)] = frac * 1.0 + (1.0 - frac) * (1.0 / eps);
+        }
+    }
+
+    // Локальная правая часть F
+    std::vector<double> F(local_NN, 0.0);
+    const int SS = 4;
+    
+    for (int i_local = 1; i_local <= local_M; ++i_local) {
+        int i_global = i_start + i_local - 1;
+        for (int j = 1; j <= N_in; ++j) {
+            const double xc = R.x0 + i_global * hx;
+            const double yc = R.y0 + j * hy;
+
+            const double xl = xc - 0.5 * hx, xr = xc + 0.5 * hx;
+            const double yb = yc - 0.5 * hy, yt = yc + 0.5 * hy;
+
+            int inside = 0;
+            for (int sx = 0; sx < SS; ++sx) {
+                for (int sy = 0; sy < SS; ++sy) {
+                    const double xs = xl + (sx + 0.5) * (hx / SS);
+                    const double ys = yb + (sy + 0.5) * (hy / SS);
+                    if (in_D(xs, ys)) ++inside;
+                }
+            }
+            const double frac_area = static_cast<double>(inside) / (SS * SS);
+            F[ID_local(i_local, j, local_M)] = frac_area;
+        }
+    }
+
+    // Локальная диагональ A_diag
+    std::vector<double> A_diag(local_NN, 0.0);
+    
+    for (int i_local = 1; i_local <= local_M; ++i_local) {
+        for (int j = 1; j <= N_in; ++j) {
+            const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
+            const double aR = ax[IX_X_local(i_local, j, local_M)];
+            const double bD = by[IX_Y_local(i_local, j - 1, local_M)];
+            const double bU = by[IX_Y_local(i_local, j, local_M)];
+            A_diag[ID_local(i_local, j, local_M)] = (aL + aR) / (hx * hx) + (bD + bU) / (hy * hy);
+        }
+    }
+
+    // Определяем соседей
+    int left_rank = (rank > 0) ? rank - 1 : MPI_PROC_NULL;
+    int right_rank = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
+
+    // Буферы для halo-обмена (по одной строке = N_in элементов)
+    std::vector<double> recv_left(N_in, 0.0);   // от левого соседа (строка i_start-1)
+    std::vector<double> recv_right(N_in, 0.0);  // от правого соседа (строка i_end+1)
+
+    // Функция обмена halo
+    auto exchange_halo = [&](const std::vector<double>& v) {
+        // Отправляем первую строку левому соседу, получаем от левого соседа
+        // Отправляем последнюю строку правому соседу, получаем от правого соседа
+        MPI_Request reqs[4];
+        int req_count = 0;
+
+        // Отправка левому соседу (наша первая строка)
+        if (left_rank != MPI_PROC_NULL) {
+            MPI_Isend(&v[ID_local(1, 1, local_M)], N_in, MPI_DOUBLE, 
+                      left_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        // Отправка правому соседу (наша последняя строка)
+        if (right_rank != MPI_PROC_NULL) {
+            MPI_Isend(&v[ID_local(local_M, 1, local_M)], N_in, MPI_DOUBLE, 
+                      right_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        // Прием от левого соседа
+        if (left_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_left.data(), N_in, MPI_DOUBLE, 
+                      left_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        // Прием от правого соседа
+        if (right_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_right.data(), N_in, MPI_DOUBLE, 
+                      right_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+
+        MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+    };
+
+    // Коэффициенты для halo-обмена (ax на границах)
+    double aL_left_boundary = ax[IX_X_local(0, 1, local_M)];  // грань слева от первой строки
+    double aR_right_boundary = ax[IX_X_local(local_M, 1, local_M)]; // грань справа от последней
+
+    // Матрично-векторное умножение с обменом halo
+    auto matvec = [&](const std::vector<double>& v, std::vector<double>& Av) {
+        exchange_halo(v);
+        
+        for (int i_local = 1; i_local <= local_M; ++i_local) {
+            int i_global = i_start + i_local - 1;
+            for (int j = 1; j <= N_in; ++j) {
+                const int k = ID_local(i_local, j, local_M);
+                const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
+                const double aR = ax[IX_X_local(i_local, j, local_M)];
+                const double bD = by[IX_Y_local(i_local, j - 1, local_M)];
+                const double bU = by[IX_Y_local(i_local, j, local_M)];
+                
+                double s = A_diag[k] * v[k];
+                
+                // Левый сосед по i
+                if (i_local > 1) {
+                    s += (-aL / (hx * hx)) * v[ID_local(i_local - 1, j, local_M)];
+                } else if (i_global > 1) {
+                    // Берем из halo от левого процесса
+                    s += (-aL / (hx * hx)) * recv_left[j - 1];
+                }
+                
+                // Правый сосед по i
+                if (i_local < local_M) {
+                    s += (-aR / (hx * hx)) * v[ID_local(i_local + 1, j, local_M)];
+                } else if (i_global < M_in) {
+                    // Берем из halo от правого процесса
+                    s += (-aR / (hx * hx)) * recv_right[j - 1];
+                }
+                
+                // Нижний сосед по j (локальный)
+                if (j > 1) {
+                    s += (-bD / (hy * hy)) * v[ID_local(i_local, j - 1, local_M)];
+                }
+                
+                // Верхний сосед по j (локальный)
+                if (j < N_in) {
+                    s += (-bU / (hy * hy)) * v[ID_local(i_local, j + 1, local_M)];
+                }
+                
+                Av[k] = s;
+            }
+        }
+    };
+
+    // Скалярное произведение с MPI_Allreduce
+    auto dot = [&](const std::vector<double>& a, const std::vector<double>& b) {
+        double local_s = 0.0;
+        for (int k = 0; k < local_NN; ++k) {
+            local_s += a[k] * b[k];
+        }
+        double global_s = 0.0;
+        MPI_Allreduce(&local_s, &global_s, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        return global_s;
+    };
+
+    // Векторы PCG
+    std::vector<double> u(local_NN, 0.0);
+    std::vector<double> r = F;
+    std::vector<double> z(local_NN, 0.0);
+    std::vector<double> p(local_NN, 0.0);
+    std::vector<double> Ap(local_NN, 0.0);
+
+    // Начальное предобуславливание
+    for (int k = 0; k < local_NN; ++k) {
+        z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
+    }
+    p = z;
+
+    const int maxit = 100000;
+    const double bnorm = std::sqrt(std::max(1e-30, dot(F, F)));
+    const double tol = 1e-8;
+    const double atol = tol * bnorm;
+
+    double rz_old = dot(r, z);
+
+    double t0 = MPI_Wtime();
+    int it;
+    for (it = 0; it < maxit; ++it) {
+        matvec(p, Ap);
+        const double pAp = dot(p, Ap);
+        if (pAp <= 0.0) {
+            if (rank == 0) std::cerr << "Breakdown in PCG\n";
+            break;
+        }
+
+        const double alpha = rz_old / pAp;
+
+        for (int k = 0; k < local_NN; ++k) {
+            u[k] += alpha * p[k];
+            r[k] -= alpha * Ap[k];
+        }
+
+        const double rnorm = std::sqrt(dot(r, r));
+        if (rank == 0 && it % 50 == 0) {
+            std::cout << "iter=" << std::setw(6) << it
+                      << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
+                      << "  |r|=" << rnorm << "\n";
+        }
+        if (rnorm <= atol) {
+            if (rank == 0) {
+                std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
+            }
+            break;
+        }
+
+        for (int k = 0; k < local_NN; ++k) {
+            z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
+        }
+
+        const double rz_new = dot(r, z);
+        const double beta = rz_new / rz_old;
+
+        for (int k = 0; k < local_NN; ++k) {
+            p[k] = z[k] + beta * p[k];
+        }
+
+        rz_old = rz_new;
+    }
+    double t1 = MPI_Wtime();
+
+    if (rank == 0) {
+        std::cout << "solve time: " << (t1 - t0) << " s\n";
+        std::cout << "iterations: " << it << "\n";
+    }
+
+    // Сбор решения на процессе 0 и запись в файл
+    {
+        // Собираем размеры и смещения
+        std::vector<int> recvcounts(size);
+        std::vector<int> displs(size);
+        
+        int local_count = local_NN;
+        MPI_Gather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        
+        if (rank == 0) {
+            displs[0] = 0;
+            for (int p = 1; p < size; ++p) {
+                displs[p] = displs[p-1] + recvcounts[p-1];
+            }
+        }
+
+        std::vector<double> u_global;
+        if (rank == 0) {
+            u_global.resize(M_in * N_in);
+        }
+
+        MPI_Gatherv(u.data(), local_NN, MPI_DOUBLE,
+                    u_global.data(), recvcounts.data(), displs.data(), MPI_DOUBLE,
+                    0, MPI_COMM_WORLD);
+
+        if (rank == 0) {
+            std::ofstream out("solution.csv");
+            out << "x,y,u\n";
+            
+            // Восстанавливаем порядок: процессы расположены последовательно по i
+            int global_idx = 0;
+            for (int p = 0; p < size; ++p) {
+                int p_base_rows = M_in / size;
+                int p_remainder = M_in % size;
+                int p_i_start = p * p_base_rows + std::min(p, p_remainder) + 1;
+                int p_local_M = p_base_rows + (p < p_remainder ? 1 : 0);
+                
+                for (int i_local = 1; i_local <= p_local_M; ++i_local) {
+                    int i_global = p_i_start + i_local - 1;
+                    for (int j = 1; j <= N_in; ++j) {
+                        const double x = R.x0 + i_global * hx;
+                        const double y = R.y0 + j * hy;
+                        out << std::fixed << std::setprecision(10) 
+                            << x << "," << y << "," << u_global[global_idx++] << "\n";
+                    }
+                }
+            }
+            out.close();
+        }
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+
