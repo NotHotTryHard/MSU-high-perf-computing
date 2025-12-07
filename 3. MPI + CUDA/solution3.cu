@@ -103,6 +103,43 @@ void matvec_kernel(const double* __restrict__ v,
     Av[k] = s;
 }
 
+// CUDA-ядро обновления u и r
+__global__
+void update_ur_kernel(double* __restrict__ u,
+                      double* __restrict__ r,
+                      const double* __restrict__ p,
+                      const double* __restrict__ Ap,
+                      double alpha,
+                      int n) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= n) return;
+    u[k] += alpha * p[k];
+    r[k] -= alpha * Ap[k];
+}
+
+// CUDA-ядро предобуславливания: z = r / diag(A)
+__global__
+void precond_kernel(double* __restrict__ z,
+                    const double* __restrict__ r,
+                    const double* __restrict__ A_diag,
+                    int n) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= n) return;
+    double d = A_diag[k];
+    z[k] = (d > 0.0 ? r[k] / d : r[k]);
+}
+
+// CUDA-ядро обновления направления
+__global__
+void update_p_kernel(double* __restrict__ p,
+                     const double* __restrict__ z,
+                     double beta,
+                     int n) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= n) return;
+    p[k] = z[k] + beta * p[k];
+}
+
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
 
@@ -483,6 +520,16 @@ int main(int argc, char** argv) {
     }
     p = z;
 
+    // Если используем GPU, синхронизируем начальные векторы с устройством
+    std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
+    if (use_gpu) {
+        cudaMemcpy(d_u, u.data(), vec_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_r, r.data(), vec_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_z, z.data(), vec_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
+        cudaMemset(d_Ap, 0, vec_bytes);
+    }
+
     const int maxit = 100000;
     const double bnorm = std::sqrt(std::max(1e-30, dot(F, F)));
     const double tol = 1e-8;
@@ -492,46 +539,108 @@ int main(int argc, char** argv) {
 
     double t0 = MPI_Wtime();
     int it;
-    for (it = 0; it < maxit; ++it) {
-        matvec(p, Ap);
-        const double pAp = dot(p, Ap);
-        if (pAp <= 0.0) {
-            if (rank == 0) std::cerr << "Breakdown in PCG\n";
-            break;
-        }
-
-        const double alpha = rz_old / pAp;
-
-        for (int k = 0; k < local_NN; ++k) {
-            u[k] += alpha * p[k];
-            r[k] -= alpha * Ap[k];
-        }
-
-        const double rnorm = std::sqrt(dot(r, r));
-        if (rank == 0 && it % 50 == 0) {
-            std::cout << "iter=" << std::setw(6) << it
-                      << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
-                      << "  |r|=" << rnorm << "\n";
-        }
-        if (rnorm <= atol) {
-            if (rank == 0) {
-                std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
+    if (!use_gpu) {
+        // Оригинальный PCG на CPU
+        for (it = 0; it < maxit; ++it) {
+            matvec(p, Ap);
+            const double pAp = dot(p, Ap);
+            if (pAp <= 0.0) {
+                if (rank == 0) std::cerr << "Breakdown in PCG\n";
+                break;
             }
-            break;
+
+            const double alpha = rz_old / pAp;
+
+            for (int k = 0; k < local_NN; ++k) {
+                u[k] += alpha * p[k];
+                r[k] -= alpha * Ap[k];
+            }
+
+            const double rnorm = std::sqrt(dot(r, r));
+            if (rank == 0 && it % 50 == 0) {
+                std::cout << "iter=" << std::setw(6) << it
+                          << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
+                          << "  |r|=" << rnorm << "\n";
+            }
+            if (rnorm <= atol) {
+                if (rank == 0) {
+                    std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
+                }
+                break;
+            }
+
+            for (int k = 0; k < local_NN; ++k) {
+                z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
+            }
+
+            const double rz_new = dot(r, z);
+            const double beta = rz_new / rz_old;
+
+            for (int k = 0; k < local_NN; ++k) {
+                p[k] = z[k] + beta * p[k];
+            }
+
+            rz_old = rz_new;
         }
+    } else {
+        // PCG с использованием CUDA-ядер для векторных операций
+        int threads = 256;
+        int blocks = (local_NN + threads - 1) / threads;
 
-        for (int k = 0; k < local_NN; ++k) {
-            z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
+        for (it = 0; it < maxit; ++it) {
+            // matvec использует GPU-ядро и возвращает Ap на хосте
+            matvec(p, Ap);
+
+            const double pAp = dot(p, Ap);
+            if (pAp <= 0.0) {
+                if (rank == 0) std::cerr << "Breakdown in PCG (GPU path)\n";
+                break;
+            }
+
+            const double alpha = rz_old / pAp;
+
+            // Копируем текущие p и Ap на устройство и обновляем u, r на GPU
+            cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
+            cudaMemcpy(d_Ap, Ap.data(), vec_bytes, cudaMemcpyHostToDevice);
+
+            update_ur_kernel<<<blocks, threads>>>(d_u, d_r, d_p, d_Ap, alpha, local_NN);
+            cudaDeviceSynchronize();
+
+            // Копируем обновленные u и r обратно на хост для расчета норм и скалярных произведений
+            cudaMemcpy(u.data(), d_u, vec_bytes, cudaMemcpyDeviceToHost);
+            cudaMemcpy(r.data(), d_r, vec_bytes, cudaMemcpyDeviceToHost);
+
+            const double rnorm = std::sqrt(dot(r, r));
+            if (rank == 0 && it % 50 == 0) {
+                std::cout << "iter=" << std::setw(6) << it
+                          << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
+                          << "  |r|=" << rnorm << "\n";
+            }
+            if (rnorm <= atol) {
+                if (rank == 0) {
+                    std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
+                }
+                break;
+            }
+
+            // Предобуславливание на GPU: z = r / A_diag
+            cudaMemcpy(d_r, r.data(), vec_bytes, cudaMemcpyHostToDevice);
+            precond_kernel<<<blocks, threads>>>(d_z, d_r, d_A_diag, local_NN);
+            cudaDeviceSynchronize();
+            cudaMemcpy(z.data(), d_z, vec_bytes, cudaMemcpyDeviceToHost);
+
+            const double rz_new = dot(r, z);
+            const double beta = rz_new / rz_old;
+
+            // Обновление направления p на GPU
+            cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
+            cudaMemcpy(d_z, z.data(), vec_bytes, cudaMemcpyHostToDevice);
+            update_p_kernel<<<blocks, threads>>>(d_p, d_z, beta, local_NN);
+            cudaDeviceSynchronize();
+            cudaMemcpy(p.data(), d_p, vec_bytes, cudaMemcpyDeviceToHost);
+
+            rz_old = rz_new;
         }
-
-        const double rz_new = dot(r, z);
-        const double beta = rz_new / rz_old;
-
-        for (int k = 0; k < local_NN; ++k) {
-            p[k] = z[k] + beta * p[k];
-        }
-
-        rz_old = rz_new;
     }
     double t1 = MPI_Wtime();
 
