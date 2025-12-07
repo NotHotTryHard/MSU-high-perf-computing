@@ -700,6 +700,21 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Освобождение ресурсов GPU
+    if (use_gpu) {
+        cudaFree(d_ax);
+        cudaFree(d_by);
+        cudaFree(d_A_diag);
+        cudaFree(d_F);
+        cudaFree(d_u);
+        cudaFree(d_r);
+        cudaFree(d_z);
+        cudaFree(d_p);
+        cudaFree(d_Ap);
+        cudaFree(d_recv_left);
+        cudaFree(d_recv_right);
+    }
+
     MPI_Finalize();
     return 0;
 }
