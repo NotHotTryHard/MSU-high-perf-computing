@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     // Инициализация CUDA-устройств: один GPU на процесс, если доступен
+    bool use_gpu = false;
     int dev_count = 0;
     cudaError_t cerr = cudaGetDeviceCount(&dev_count);
     if (cerr != cudaSuccess || dev_count == 0) {
@@ -62,10 +63,13 @@ int main(int argc, char** argv) {
             if (rank == 0) {
                 std::cerr << "Warning: cudaSetDevice failed, running as pure MPI.\n";
             }
-        } else if (rank == 0) {
-            cudaDeviceProp prop{};
-            cudaGetDeviceProperties(&prop, dev_id);
-            std::cout << "Using CUDA device " << dev_id << " (" << prop.name << ")\n";
+        } else {
+            use_gpu = true;
+            if (rank == 0) {
+                cudaDeviceProp prop{};
+                cudaGetDeviceProperties(&prop, dev_id);
+                std::cout << "Using CUDA device " << dev_id << " (" << prop.name << ")\n";
+            }
         }
     }
 
@@ -99,6 +103,10 @@ int main(int argc, char** argv) {
     const double eps = h * h;
 
     const int local_NN = local_M * N_in;
+
+    // Указатели на данные на устройстве (GPU)
+    double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr, *d_F = nullptr;
+    double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
 
     // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
     std::vector<double> ax((local_M + 1) * N_in, 0.0);
@@ -178,6 +186,38 @@ int main(int argc, char** argv) {
             A_diag[ID_local(i_local, j, local_M)] =
                 (aL + aR) / (hx * hx) + (bD + bU) / (hy * hy);
         }
+    }
+
+    // Копирование коэффициентов и правой части на GPU (шаги 3–4 подготовки CUDA)
+    if (use_gpu) {
+        std::size_t ax_bytes = ax.size() * sizeof(double);
+        std::size_t by_bytes = by.size() * sizeof(double);
+        std::size_t diag_bytes = A_diag.size() * sizeof(double);
+        std::size_t f_bytes = F.size() * sizeof(double);
+        std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
+
+        cudaMalloc(&d_ax, ax_bytes);
+        cudaMalloc(&d_by, by_bytes);
+        cudaMalloc(&d_A_diag, diag_bytes);
+        cudaMalloc(&d_F, f_bytes);
+
+        cudaMemcpy(d_ax, ax.data(), ax_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_by, by.data(), by_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_A_diag, A_diag.data(), diag_bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_F, F.data(), f_bytes, cudaMemcpyHostToDevice);
+
+        // Векторы PCG на устройстве
+        cudaMalloc(&d_u, vec_bytes);
+        cudaMalloc(&d_r, vec_bytes);
+        cudaMalloc(&d_z, vec_bytes);
+        cudaMalloc(&d_p, vec_bytes);
+        cudaMalloc(&d_Ap, vec_bytes);
+
+        cudaMemset(d_u, 0, vec_bytes);
+        cudaMemcpy(d_r, F.data(), vec_bytes, cudaMemcpyHostToDevice);
+        cudaMemset(d_z, 0, vec_bytes);
+        cudaMemset(d_p, 0, vec_bytes);
+        cudaMemset(d_Ap, 0, vec_bytes);
     }
 
     // Определяем соседей
