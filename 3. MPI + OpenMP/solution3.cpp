@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <mpi.h>
+#include <omp.h>
 #include <vector>
 
 static int M_in = 80, N_in = 80;
@@ -40,7 +41,9 @@ inline int IX_Y_local(int i_local, int j_face, int local_M) {
 }
 
 int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
+    // ВАЖНО: Инициализация MPI с поддержкой многопоточности
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
 
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -63,6 +66,8 @@ int main(int argc, char** argv) {
     if (rank == 0) {
         std::cout << "Grid: " << M_in << " x " << N_in << "\n";
         std::cout << "MPI processes: " << size << "\n";
+        std::cout << "OpenMP threads per process: " << omp_get_max_threads() << "\n";
+        std::cout << "MPI_THREAD level: " << provided << " (requested: " << MPI_THREAD_FUNNELED << ")\n";
     }
 
     Box R;
@@ -80,9 +85,10 @@ int main(int argc, char** argv) {
     // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
     std::vector<double> ax((local_M + 1) * N_in, 0.0);
     
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i_local = 0; i_local <= local_M; ++i_local) {
-        int i_global = i_start - 1 + i_local;  // глобальный индекс грани
         for (int j = 1; j <= N_in; ++j) {
+            const int i_global = i_start - 1 + i_local;  // глобальный индекс грани
             const double x_face = R.x0 + (i_global + 0.5) * hx;
             const double y_low  = R.y0 + (j - 0.5) * hy;
             const double y_high = y_low + hy;
@@ -100,9 +106,10 @@ int main(int argc, char** argv) {
     // Локальные коэффициенты by: для строк от i_start до i_end
     std::vector<double> by(local_M * (N_in + 1), 0.0);
     
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i_local = 1; i_local <= local_M; ++i_local) {
-        int i_global = i_start + i_local - 1;
         for (int j = 0; j <= N_in; ++j) {
+            const int i_global = i_start + i_local - 1;
             const double y_face = R.y0 + (j + 0.5) * hy;
             const double x_low  = R.x0 + (i_global - 0.5) * hx;
             const double x_high = x_low + hx;
@@ -121,9 +128,10 @@ int main(int argc, char** argv) {
     std::vector<double> F(local_NN, 0.0);
     const int SS = 4;
     
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i_local = 1; i_local <= local_M; ++i_local) {
-        int i_global = i_start + i_local - 1;
         for (int j = 1; j <= N_in; ++j) {
+            const int i_global = i_start + i_local - 1;
             const double xc = R.x0 + i_global * hx;
             const double yc = R.y0 + j * hy;
 
@@ -146,6 +154,7 @@ int main(int argc, char** argv) {
     // Локальная диагональ A_diag
     std::vector<double> A_diag(local_NN, 0.0);
     
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i_local = 1; i_local <= local_M; ++i_local) {
         for (int j = 1; j <= N_in; ++j) {
             const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
@@ -203,9 +212,10 @@ int main(int argc, char** argv) {
     auto matvec = [&](const std::vector<double>& v, std::vector<double>& Av) {
         exchange_halo(v);
         
+        #pragma omp parallel for collapse(2) schedule(static)
         for (int i_local = 1; i_local <= local_M; ++i_local) {
-            int i_global = i_start + i_local - 1;
             for (int j = 1; j <= N_in; ++j) {
+                const int i_global = i_start + i_local - 1;
                 const int k = ID_local(i_local, j, local_M);
                 const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
                 const double aR = ax[IX_X_local(i_local, j, local_M)];
@@ -245,9 +255,11 @@ int main(int argc, char** argv) {
         }
     };
 
-    // Скалярное произведение с MPI_Allreduce
+    // Скалярное произведение с OpenMP редукцией + MPI
     auto dot = [&](const std::vector<double>& a, const std::vector<double>& b) {
         double local_s = 0.0;
+        
+        #pragma omp parallel for reduction(+:local_s) schedule(static)
         for (int k = 0; k < local_NN; ++k) {
             local_s += a[k] * b[k];
         }
@@ -264,6 +276,7 @@ int main(int argc, char** argv) {
     std::vector<double> Ap(local_NN, 0.0);
 
     // Начальное предобуславливание
+    #pragma omp parallel for schedule(static)
     for (int k = 0; k < local_NN; ++k) {
         z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
     }
@@ -288,12 +301,18 @@ int main(int argc, char** argv) {
 
         const double alpha = rz_old / pAp;
 
+        // Объединяем: u += alpha*p, r -= alpha*Ap, вычисляем |r|^2
+        double local_rnorm2 = 0.0;
+        #pragma omp parallel for reduction(+:local_rnorm2) schedule(static)
         for (int k = 0; k < local_NN; ++k) {
             u[k] += alpha * p[k];
             r[k] -= alpha * Ap[k];
+            local_rnorm2 += r[k] * r[k];
         }
+        double global_rnorm2 = 0.0;
+        MPI_Allreduce(&local_rnorm2, &global_rnorm2, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        const double rnorm = std::sqrt(global_rnorm2);
 
-        const double rnorm = std::sqrt(dot(r, r));
         if (rank == 0 && it % 50 == 0) {
             std::cout << "iter=" << std::setw(6) << it
                       << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
@@ -306,13 +325,19 @@ int main(int argc, char** argv) {
             break;
         }
 
+        // Объединяем: z = r/A_diag, вычисляем rz_new, p = z + beta*p
+        double local_rz = 0.0;
+        #pragma omp parallel for reduction(+:local_rz) schedule(static)
         for (int k = 0; k < local_NN; ++k) {
             z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
+            local_rz += r[k] * z[k];
         }
-
-        const double rz_new = dot(r, z);
+        double rz_new = 0.0;
+        MPI_Allreduce(&local_rz, &rz_new, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        
         const double beta = rz_new / rz_old;
 
+        #pragma omp parallel for schedule(static)
         for (int k = 0; k < local_NN; ++k) {
             p[k] = z[k] + beta * p[k];
         }
