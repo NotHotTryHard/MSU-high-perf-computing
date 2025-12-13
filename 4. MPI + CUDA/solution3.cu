@@ -41,27 +41,13 @@ inline int IX_Y_local(int i_local, int j_face, int local_M) {
     return (i_local - 1) * (N_in + 1) + j_face; 
 }
 
-// -------------------- Dot-product reduction WITHOUT shared/atomics --------------------
-// Требования задания:
-//  - нельзя shared memory для редукции
-//  - нельзя atomic операции
-//
-// Реализация: 2 стадии.
-//  (1) dot_partials_kernel: каждая warp считает сумму по своим элементам (warp-shuffle),
-//      лидер warp пишет в глобальный массив partials.
-//  (2) reduce_final_warp_kernel: один warp суммирует partials в 1 число.
-//
-// Это избегает и shared, и atomic. Дальше 1 число копируется на CPU и редуцируется MPI_Allreduce.
-
 __device__ __forceinline__ double warp_reduce_sum(double v) {
     for (int offset = 16; offset > 0; offset >>= 1) {
-        // _sync вариант не нарушает ограничение cc3.5 и убирает warning про deprecated shfl
         v += __shfl_down_sync(0xffffffff, v, offset);
     }
     return v;
 }
 
-// out_partials has size >= gridDim.x * (blockDim.x/32)
 __global__
 void dot_partials_kernel(const double* __restrict__ a,
                          const double* __restrict__ b,
@@ -89,7 +75,6 @@ __global__
 void reduce_final_warp_kernel(const double* __restrict__ in,
                               double* __restrict__ out,
                               int n) {
-    // blockDim.x MUST be 32
     double sum = 0.0;
     for (int k = threadIdx.x; k < n; k += 32) {
         sum += in[k];
@@ -116,7 +101,6 @@ void matvec_kernel(const double* __restrict__ v,
     int i_global = i_start + i_local - 1;
     int k = (i_local - 1) * N_in + (j - 1);
 
-    // Индексы для коэффициентов
     int idx_aL = (i_local - 1) * N_in + (j - 1);     // (i_local-1, j)
     int idx_aR = i_local * N_in + (j - 1);           // (i_local,   j)
     int idx_bD = (i_local - 1) * (N_in + 1) + (j - 1); // (i_local, j-1)
@@ -260,26 +244,26 @@ int main(int argc, char** argv) {
     const int local_NN = local_M * N_in;
 
     // Аккумуляторы для измерения времени (MPI_Wtime)
-    double time_init = 0.0;           // инициализация (CPU+GPU setup, аллокации, precompute)
-    double time_cpu_build = 0.0;      // построение коэффициентов/правой части/diag на CPU
-    double time_gpu_alloc = 0.0;      // cudaMalloc/cudaMemset
-    double time_gpu_upload = 0.0;     // H->D копирование коэффициентов/начальных векторов
-    double time_mpi_collective = 0.0; // MPI_Allreduce/MPI_Gather/MPI_Gatherv суммарно
-    double time_gather_io = 0.0;      // сбор результата + запись
-    double time_finalize = 0.0;       // освобождение ресурсов + MPI_Finalize
+    double time_init = 0.0;
+    double time_cpu_build = 0.0;
+    double time_gpu_alloc = 0.0;
+    double time_gpu_upload = 0.0;
+    double time_mpi_collective = 0.0;
+    double time_gather_io = 0.0;
+    double time_finalize = 0.0;
 
-    double time_comm_halo = 0.0;      // время коммуникаций halo (MPI)
-    double time_h2d = 0.0;            // время копий host->device
-    double time_d2h = 0.0;            // время копий device->host
-    double time_kernel_matvec = 0.0;  // время CUDA-ядра matvec
-    double time_kernel_vec = 0.0;     // время CUDA-ядер векторных операций PCG
+    double time_comm_halo = 0.0;
+    double time_h2d = 0.0;
+    double time_d2h = 0.0;
+    double time_kernel_matvec = 0.0;
+    double time_kernel_vec = 0.0;
 
     // Указатели на данные на устройстве (GPU)
     double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr;
     double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
     double *d_recv_left = nullptr, *d_recv_right = nullptr;
-    double *d_dot_partials = nullptr; // partial sums for dot reduction (no atomics)
-    double *d_dot_tmp = nullptr;      // single double result for dot
+    double *d_dot_partials = nullptr;
+    double *d_dot_tmp = nullptr;
 
     double t_init0 = MPI_Wtime();
 
@@ -424,7 +408,6 @@ int main(int argc, char** argv) {
     time_gpu_alloc += (t_alloc1 - t_alloc0);
 
     // Буферы для скалярных произведений на GPU (без atomics/shared)
-    // Максимум: blocks<=1024, threads=256 => warps_per_block=8 => partials<=8192
     t_alloc0 = MPI_Wtime();
     cudaMalloc(&d_dot_partials, 8192 * sizeof(double));
     cudaMalloc(&d_dot_tmp, sizeof(double));
@@ -435,18 +418,14 @@ int main(int argc, char** argv) {
     int left_rank = (rank > 0) ? rank - 1 : MPI_PROC_NULL;
     int right_rank = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
 
-    // Буферы для halo-обмена (по одной строке = N_in элементов)
-    std::vector<double> recv_left(N_in, 0.0);   // от левого соседа (строка i_start-1)
-    std::vector<double> recv_right(N_in, 0.0);  // от правого соседа (строка i_end+1)
-    std::vector<double> send_left(N_in, 0.0);   // буферы для отправки на CPU
+    std::vector<double> recv_left(N_in, 0.0);
+    std::vector<double> recv_right(N_in, 0.0);
+    std::vector<double> send_left(N_in, 0.0);
     std::vector<double> send_right(N_in, 0.0);
 
     // Функция обмена halo для вектора на GPU (d_v)
     auto exchange_halo_gpu = [&](const double* d_v) {
         double t_copy0, t_copy1;
-        // Используем синхронный обмен (MPI_Sendrecv), чтобы не требовалась
-        // "демонстрация перекрытия" для асинхронных коммуникаций.
-
         // Скопировать граничные строки с GPU на хост и отправить соседям
         if (left_rank != MPI_PROC_NULL) {
             t_copy0 = MPI_Wtime();
@@ -568,10 +547,6 @@ int main(int argc, char** argv) {
     const double atol = tol * bnorm;
 
     // PCG на GPU: вектора u/r/z/p/Ap постоянно живут на устройстве.
-    // На CPU копируем только:
-    //  - halo-строки для MPI (внутри exchange_halo_gpu),
-    //  - скаляры dot/нормы для MPI_Allreduce,
-    //  - финальный u для MPI_Gatherv/записи.
     const int threads = 256;
     const int blocks = (local_NN + threads - 1) / threads;
 
@@ -649,12 +624,9 @@ int main(int argc, char** argv) {
     time_d2h += (tc1 - tc0);
     double t1 = MPI_Wtime();
 
-    // init time ends here (everything up to end of solve incl. CPU precompute and allocations)
-    // We'll report solve_time separately; init includes precompute+alloc+uploads.
     double t_init1 = t0;
     time_init += (t_init1 - t_init0);
 
-    // Сводка по времени работы
     double solve_time = t1 - t0;
     double max_solve_time = 0.0;
     {
@@ -669,10 +641,8 @@ int main(int argc, char** argv) {
         std::cout << "iterations: " << it << "\n";
     }
 
-    // Сбор решения на процессе 0 и запись в файл
     {
         double tg0 = MPI_Wtime();
-        // Собираем размеры и смещения
         std::vector<int> recvcounts(size);
         std::vector<int> displs(size);
         
@@ -709,7 +679,6 @@ int main(int argc, char** argv) {
             std::ofstream out("solution.csv");
             out << "x,y,u\n";
             
-            // Восстанавливаем порядок: процессы расположены последовательно по i
             int global_idx = 0;
             for (int p = 0; p < size; ++p) {
                 int p_base_rows = M_in / size;
@@ -750,7 +719,7 @@ int main(int argc, char** argv) {
     double tf1 = MPI_Wtime();
     time_finalize += (tf1 - tf0);
 
-    // Сводная печать таймингов (max over ranks) — покрывает требования п.9
+    // Сводная печать таймингов (max over ranks)
     {
         double max_init = 0.0, max_cpu = 0.0, max_alloc = 0.0, max_upload = 0.0;
         double max_comm = 0.0, max_h2d = 0.0, max_d2h = 0.0;
