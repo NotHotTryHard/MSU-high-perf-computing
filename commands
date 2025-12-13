@@ -1,0 +1,23 @@
+export CUDA_HOME=/usr/local/cuda
+export PATH="$CUDA_HOME/bin:$PATH"
+
+1) OpenMP-реализация
+g++ -O3 -std=c++17 -fopenmp 1.\ OpenMP/solution1.cpp -o sol1
+export OMP_NUM_THREAD
+./sol1 400 600
+
+22.2sec best for 800x1200
+
+2) MPI-реализация
+mpicxx -O3 -std=c++17 -o sol2 2.\ MPI/solution2.cpp
+mpirun -n 16 ./sol2 400 600
+mpirun --use-hwthread-cpus -np 6 ./sol2 400 600
+
+20.34sec best for 800x1200
+
+3) MPI+CUDA-реализация
+/usr/local/cuda/bin/nvcc -O3 -std=c++17 -arch=sm_86 -ccbin mpicxx "3. MPI + CUDA/solution3.cu" -o sol3
+mpirun -np 1 ./sol3 400 600
+mpirun --use-hwthread-cpus -np 6 ./sol3 400 600
+
+3.03sec best for 800x1200
