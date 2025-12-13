@@ -21,3 +21,7 @@ mpirun -np 1 ./sol3 400 600
 mpirun --use-hwthread-cpus -np 6 ./sol3 400 600
 
 3.03sec best for 800x1200
+
+
+scp -i ~/.ssh/id_rsa_hpc "3. MPI + CUDA/solution3.cu" edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/solution3.cu
+ssh edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru -i ~/.ssh/id_rsa_hpc
