@@ -3,16 +3,18 @@
 # Запускать на кластере в каталоге, где лежит ./sol3
 
 # Загружаем модули и компилируем
-module load openmpi/2.1.2/2018
-module load pgi/18.4
+module load pgi
+module load openmpi
+export OMPI_CXX=g++
 
 # Компиляция
+
 
 mkdir -p launches3
 mkdir -p log3
 
 ###############################
-# 1) p = 1 2 4 8 16 32 64
+# 1) p = 1 2 4 8 16
 #    сетки 400x600 и 800x1200
 ###############################
 for pair in "400 600" "800 1200"; do
@@ -20,10 +22,10 @@ for pair in "400 600" "800 1200"; do
   N=$1
   M=$2
 
-  for p in 1 2 4 8 16 32; do
+  for p in 1 2 4 8 16; do
     out=./launches3/part1_${N}x${M}_p${p}.lsf
 
-    echo "#BSUB -J solution3_p${p}_${N}x${M}_part1"     >  "$out"
+    echo "#BSUB -J sol3_p${p}_${N}x${M}_part1"     >  "$out"
     echo "#BSUB -n ${p} -q normal"                      >> "$out"
     echo "#BSUB -W 00:32"                               >> "$out"
     echo "#BSUB -o ./log3/part1-${N}x${M}-p${p}.out"     >> "$out"
@@ -47,7 +49,7 @@ for pair in "10 10" "20 20" "40 40"; do
 
   out=./launches3/part2_${N}x${M}_p${p}.lsf
 
-  echo "#BSUB -J solution3_p${p}_${N}x${M}_part2"       >  "$out"
+  echo "#BSUB -J sol3_p${p}_${N}x${M}_part2"       >  "$out"
   echo "#BSUB -n ${p} -q normal"                        >> "$out"
   echo "#BSUB -W 00:10"                                 >> "$out"
   echo "#BSUB -o ./log3/part2-${N}x${M}-p${p}.out"      >> "$out"
@@ -68,7 +70,7 @@ M=40
 for p in 1 4 16; do
   out=./launches3/part3_${N}x${M}_p${p}.lsf
 
-  echo "#BSUB -J solution3_p${p}_${N}x${M}_part3"       >  "$out"
+  echo "#BSUB -J sol3_p${p}_${N}x${M}_part3"       >  "$out"
   echo "#BSUB -n ${p} -q normal"                        >> "$out"
   echo "#BSUB -W 00:10"                                 >> "$out"
   echo "#BSUB -o ./log3/part3-${N}x${M}-p${p}.out"      >> "$out"
