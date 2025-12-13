@@ -41,6 +41,53 @@ inline int IX_Y_local(int i_local, int j_face, int local_M) {
     return (i_local - 1) * (N_in + 1) + j_face; 
 }
 
+__device__ inline double atomicAdd_double(double* address, double val) {
+#if __CUDA_ARCH__ >= 600
+    return atomicAdd(address, val);
+#else
+    unsigned long long int* address_as_ull =
+        reinterpret_cast<unsigned long long int*>(address);
+    unsigned long long int old = *address_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(
+            address_as_ull,
+            assumed,
+            __double_as_longlong(val + __longlong_as_double(assumed))
+        );
+    } while (assumed != old);
+    return __longlong_as_double(old);
+#endif
+}
+
+// Скалярное произведение на GPU (локальное): out += sum_i a[i]*b[i]
+// Затем out копируется на CPU и редуцируется через MPI_Allreduce.
+__global__
+void dot_kernel(const double* __restrict__ a,
+                const double* __restrict__ b,
+                double* __restrict__ out,
+                int n) {
+    double sum = 0.0;
+    for (int k = blockIdx.x * blockDim.x + threadIdx.x;
+         k < n;
+         k += blockDim.x * gridDim.x) {
+        sum += a[k] * b[k];
+    }
+
+    __shared__ double sh[256];
+    sh[threadIdx.x] = sum;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) sh[threadIdx.x] += sh[threadIdx.x + s];
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0) {
+        atomicAdd_double(out, sh[0]);
+    }
+}
+
 // CUDA-ядро матрично-векторного умножения с учетом halo-строк
 __global__
 void matvec_kernel(const double* __restrict__ v,
@@ -147,29 +194,28 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Инициализация CUDA-устройств: один GPU на процесс, если доступен
-    bool use_gpu = false;
     int dev_count = 0;
     cudaError_t cerr = cudaGetDeviceCount(&dev_count);
     if (cerr != cudaSuccess || dev_count == 0) {
         if (rank == 0) {
-            std::cerr << "Warning: no CUDA devices visible, running as pure MPI.\n";
+            std::cerr << "Error: no CUDA devices visible.\n";
         }
-    } else {
-        int dev_id = rank % dev_count;
-        cudaError_t serr = cudaSetDevice(dev_id);
-        if (serr != cudaSuccess) {
-            if (rank == 0) {
-                std::cerr << "Warning: cudaSetDevice failed, running as pure MPI.\n";
-            }
-        } else {
-            use_gpu = true;
-            if (rank == 0) {
-                cudaDeviceProp prop{};
-                cudaGetDeviceProperties(&prop, dev_id);
-                std::cout << "Using CUDA device " << dev_id << " (" << prop.name << ")\n";
-            }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    int dev_id = rank % dev_count;
+    cudaError_t serr = cudaSetDevice(dev_id);
+    if (serr != cudaSuccess) {
+        if (rank == 0) {
+            std::cerr << "Error: cudaSetDevice(" << dev_id << ") failed.\n";
         }
+        MPI_Abort(MPI_COMM_WORLD, 2);
+    }
+
+    if (rank == 0) {
+        cudaDeviceProp prop{};
+        cudaGetDeviceProperties(&prop, dev_id);
+        std::cout << "Using CUDA device " << dev_id << " (" << prop.name << ")\n";
     }
 
     if (argc >= 3) {
@@ -203,7 +249,7 @@ int main(int argc, char** argv) {
 
     const int local_NN = local_M * N_in;
 
-    // Аккумуляторы для измерения времени (MPI_Wtime) в GPU/CPU ветках
+    // Аккумуляторы для измерения времени (MPI_Wtime)
     double time_comm_halo = 0.0;      // время коммуникаций halo (MPI)
     double time_h2d = 0.0;            // время копий host->device
     double time_d2h = 0.0;            // время копий device->host
@@ -211,9 +257,10 @@ int main(int argc, char** argv) {
     double time_kernel_vec = 0.0;     // время CUDA-ядер векторных операций PCG
 
     // Указатели на данные на устройстве (GPU)
-    double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr, *d_F = nullptr;
+    double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr;
     double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
     double *d_recv_left = nullptr, *d_recv_right = nullptr;
+    double *d_dot_tmp = nullptr; // аккумулятор для dot_kernel
 
     // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
     std::vector<double> ax((local_M + 1) * N_in, 0.0);
@@ -295,41 +342,40 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Копирование коэффициентов и правой части на GPU (шаги 3–4 подготовки CUDA)
-    if (use_gpu) {
-        std::size_t ax_bytes = ax.size() * sizeof(double);
-        std::size_t by_bytes = by.size() * sizeof(double);
-        std::size_t diag_bytes = A_diag.size() * sizeof(double);
-        std::size_t f_bytes = F.size() * sizeof(double);
-        std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
+    // Копирование коэффициентов и правой части на GPU (подготовка CUDA)
+    const std::size_t ax_bytes   = ax.size() * sizeof(double);
+    const std::size_t by_bytes   = by.size() * sizeof(double);
+    const std::size_t diag_bytes = A_diag.size() * sizeof(double);
+    const std::size_t vec_bytes  = static_cast<std::size_t>(local_NN) * sizeof(double);
 
-        cudaMalloc(&d_ax, ax_bytes);
-        cudaMalloc(&d_by, by_bytes);
-        cudaMalloc(&d_A_diag, diag_bytes);
-        cudaMalloc(&d_F, f_bytes);
+    cudaMalloc(&d_ax, ax_bytes);
+    cudaMalloc(&d_by, by_bytes);
+    cudaMalloc(&d_A_diag, diag_bytes);
 
-        cudaMemcpy(d_ax, ax.data(), ax_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_by, by.data(), by_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_A_diag, A_diag.data(), diag_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_F, F.data(), f_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_ax, ax.data(), ax_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_by, by.data(), by_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_A_diag, A_diag.data(), diag_bytes, cudaMemcpyHostToDevice);
 
-        // Векторы PCG на устройстве (пока используем d_p/d_Ap как рабочие буферы для matvec)
-        cudaMalloc(&d_u, vec_bytes);
-        cudaMalloc(&d_r, vec_bytes);
-        cudaMalloc(&d_z, vec_bytes);
-        cudaMalloc(&d_p, vec_bytes);
-        cudaMalloc(&d_Ap, vec_bytes);
+    // Векторы PCG на устройстве
+    cudaMalloc(&d_u, vec_bytes);
+    cudaMalloc(&d_r, vec_bytes);
+    cudaMalloc(&d_z, vec_bytes);
+    cudaMalloc(&d_p, vec_bytes);
+    cudaMalloc(&d_Ap, vec_bytes);
 
-        cudaMemset(d_u, 0, vec_bytes);
-        cudaMemcpy(d_r, F.data(), vec_bytes, cudaMemcpyHostToDevice);
-        cudaMemset(d_z, 0, vec_bytes);
-        cudaMemset(d_p, 0, vec_bytes);
-        cudaMemset(d_Ap, 0, vec_bytes);
+    cudaMemset(d_u, 0, vec_bytes);
+    cudaMemcpy(d_r, F.data(), vec_bytes, cudaMemcpyHostToDevice); // r0 = b (u0=0)
+    cudaMemset(d_z, 0, vec_bytes);
+    cudaMemset(d_p, 0, vec_bytes);
+    cudaMemset(d_Ap, 0, vec_bytes);
 
-        // Halo-буферы на устройстве
-        cudaMalloc(&d_recv_left,  N_in * sizeof(double));
-        cudaMalloc(&d_recv_right, N_in * sizeof(double));
-    }
+    // Halo-буферы на устройстве
+    cudaMalloc(&d_recv_left,  N_in * sizeof(double));
+    cudaMalloc(&d_recv_right, N_in * sizeof(double));
+
+    // Аккумулятор для скалярных произведений на GPU
+    cudaMalloc(&d_dot_tmp, sizeof(double));
+    cudaMemset(d_dot_tmp, 0, sizeof(double));
 
     // Определяем соседей
     int left_rank = (rank > 0) ? rank - 1 : MPI_PROC_NULL;
@@ -341,44 +387,8 @@ int main(int argc, char** argv) {
     std::vector<double> send_left(N_in, 0.0);   // буферы для отправки на CPU
     std::vector<double> send_right(N_in, 0.0);
 
-    // Функция обмена halo
-    auto exchange_halo_cpu = [&](const std::vector<double>& v) {
-        // Отправляем первую строку левому соседу, получаем от левого соседа
-        // Отправляем последнюю строку правому соседу, получаем от правого соседа
-        double t0 = MPI_Wtime();
-        MPI_Request reqs[4];
-        int req_count = 0;
-
-        // Отправка левому соседу (наша первая строка)
-        if (left_rank != MPI_PROC_NULL) {
-            MPI_Isend(&v[ID_local(1, 1, local_M)], N_in, MPI_DOUBLE, 
-                      left_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
-        }
-        // Отправка правому соседу (наша последняя строка)
-        if (right_rank != MPI_PROC_NULL) {
-            MPI_Isend(&v[ID_local(local_M, 1, local_M)], N_in, MPI_DOUBLE, 
-                      right_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
-        }
-        // Прием от левого соседа
-        if (left_rank != MPI_PROC_NULL) {
-            MPI_Irecv(recv_left.data(), N_in, MPI_DOUBLE, 
-                      left_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
-        }
-        // Прием от правого соседа
-        if (right_rank != MPI_PROC_NULL) {
-            MPI_Irecv(recv_right.data(), N_in, MPI_DOUBLE, 
-                      right_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
-        }
-
-        MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
-        double t1 = MPI_Wtime();
-        time_comm_halo += (t1 - t0);
-    };
-
     // Функция обмена halo для вектора на GPU (d_v)
-    auto exchange_halo_gpu = [&](double* d_v) {
-        if (!use_gpu) return;
-
+    auto exchange_halo_gpu = [&](const double* d_v) {
         double t_copy0, t_copy1;
         MPI_Request reqs[4];
         int req_count = 0;
@@ -437,277 +447,151 @@ int main(int argc, char** argv) {
         }
     };
 
-    // Коэффициенты для halo-обмена (ax на границах) – пока не используются в CUDA-ветке,
-    // но могут пригодиться для дальнейшей оптимизации
-    double aL_left_boundary = ax[IX_X_local(0, 1, local_M)];  // грань слева от первой строки
-    double aR_right_boundary = ax[IX_X_local(local_M, 1, local_M)]; // грань справа от последней
+    // Матрично-векторное умножение на GPU
+    dim3 mv_block(16, 16);
+    dim3 mv_grid(
+        (N_in + mv_block.x - 1) / mv_block.x,
+        (local_M + mv_block.y - 1) / mv_block.y
+    );
+    auto matvec_gpu = [&](const double* d_v, double* d_Av) {
+        // halo-обмен через CPU-буферы и копирование на GPU
+        exchange_halo_gpu(d_v);
 
-    // Матрично-векторное умножение с обменом halo
-    auto matvec = [&](const std::vector<double>& v, std::vector<double>& Av) {
-        if (!use_gpu) {
-            // CPU-вариант (как в исходном MPI-коде)
-            exchange_halo_cpu(v);
-            
-            for (int i_local = 1; i_local <= local_M; ++i_local) {
-                int i_global = i_start + i_local - 1;
-                for (int j = 1; j <= N_in; ++j) {
-                    const int k = ID_local(i_local, j, local_M);
-                    const double aL = ax[IX_X_local(i_local - 1, j, local_M)];
-                    const double aR = ax[IX_X_local(i_local, j, local_M)];
-                    const double bD =
-                        by[IX_Y_local(i_local, j - 1, local_M)];
-                    const double bU =
-                        by[IX_Y_local(i_local, j, local_M)];
-                    
-                    double s = A_diag[k] * v[k];
-                    
-                    // Левый сосед по i
-                    if (i_local > 1) {
-                        s += (-aL / (hx * hx)) *
-                             v[ID_local(i_local - 1, j, local_M)];
-                    } else if (i_global > 1) {
-                        // Берем из halo от левого процесса
-                        s += (-aL / (hx * hx)) * recv_left[j - 1];
-                    }
-                    
-                    // Правый сосед по i
-                    if (i_local < local_M) {
-                        s += (-aR / (hx * hx)) *
-                             v[ID_local(i_local + 1, j, local_M)];
-                    } else if (i_global < M_in) {
-                        // Берем из halo от правого процесса
-                        s += (-aR / (hx * hx)) * recv_right[j - 1];
-                    }
-                    
-                    // Нижний сосед по j (локальный)
-                    if (j > 1) {
-                        s += (-bD / (hy * hy)) *
-                             v[ID_local(i_local, j - 1, local_M)];
-                    }
-                    
-                    // Верхний сосед по j (локальный)
-                    if (j < N_in) {
-                        s += (-bU / (hy * hy)) *
-                             v[ID_local(i_local, j + 1, local_M)];
-                    }
-                    
-                    Av[k] = s;
-                }
-            }
-        } else {
-            // GPU-вариант: копируем вектор v на устройство, выполняем halo-обмен и ядро
-            std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
-            double t0 = MPI_Wtime();
-            cudaMemcpy(d_p, v.data(), vec_bytes, cudaMemcpyHostToDevice);
-            double t1 = MPI_Wtime();
-            time_h2d += (t1 - t0);
-
-            // halo-обмен через CPU-буферы и копирование на GPU
-            exchange_halo_gpu(d_p);
-
-            dim3 block(16, 16);
-            dim3 grid(
-                (N_in + block.x - 1) / block.x,
-                (local_M + block.y - 1) / block.y
-            );
-
-            double tk0 = MPI_Wtime();
-            matvec_kernel<<<grid, block>>>(
-                d_p, d_Ap,
-                d_ax, d_by, d_A_diag,
-                d_recv_left, d_recv_right,
-                local_M, N_in, M_in, i_start,
-                hx, hy
-            );
-            cudaDeviceSynchronize();
-            double tk1 = MPI_Wtime();
-            time_kernel_matvec += (tk1 - tk0);
-
-            // Копируем результат обратно на хостовый вектор Av
-            t0 = MPI_Wtime();
-            cudaMemcpy(Av.data(), d_Ap, vec_bytes, cudaMemcpyDeviceToHost);
-            t1 = MPI_Wtime();
-            time_d2h += (t1 - t0);
-        }
+        double tk0 = MPI_Wtime();
+        matvec_kernel<<<mv_grid, mv_block>>>(
+            d_v, d_Av,
+            d_ax, d_by, d_A_diag,
+            d_recv_left, d_recv_right,
+            local_M, N_in, M_in, i_start,
+            hx, hy
+        );
+        cudaDeviceSynchronize();
+        double tk1 = MPI_Wtime();
+        time_kernel_matvec += (tk1 - tk0);
     };
 
-    // Скалярное произведение с MPI_Allreduce
-    auto dot = [&](const std::vector<double>& a, const std::vector<double>& b) {
+    // Скалярное произведение на GPU (локально на GPU -> 1 число на CPU -> MPI_Allreduce)
+    auto dot_gpu = [&](const double* d_a, const double* d_b) {
+        // Обнуляем аккумулятор на GPU
+        cudaMemset(d_dot_tmp, 0, sizeof(double));
+
+        const int threads = 256; // важно: dot_kernel использует shared[256]
+        int blocks = (local_NN + threads - 1) / threads;
+        blocks = std::max(1, std::min(1024, blocks));
+
+        double tk0 = MPI_Wtime();
+        dot_kernel<<<blocks, threads>>>(d_a, d_b, d_dot_tmp, local_NN);
+        cudaDeviceSynchronize();
+        double tk1 = MPI_Wtime();
+        // Считаем dot как "векторную операцию" (часть PCG)
+        time_kernel_vec += (tk1 - tk0);
+
         double local_s = 0.0;
-        for (int k = 0; k < local_NN; ++k) {
-            local_s += a[k] * b[k];
-        }
+        double t0 = MPI_Wtime();
+        cudaMemcpy(&local_s, d_dot_tmp, sizeof(double), cudaMemcpyDeviceToHost);
+        double t1 = MPI_Wtime();
+        time_d2h += (t1 - t0);
+
         double global_s = 0.0;
         MPI_Allreduce(&local_s, &global_s, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         return global_s;
     };
 
-    // Векторы PCG
+    // Буфер на host для финального решения (копируем один раз после PCG)
     std::vector<double> u(local_NN, 0.0);
-    std::vector<double> r = F;
-    std::vector<double> z(local_NN, 0.0);
-    std::vector<double> p(local_NN, 0.0);
-    std::vector<double> Ap(local_NN, 0.0);
-
-    // Начальное предобуславливание
-    for (int k = 0; k < local_NN; ++k) {
-        z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
-    }
-    p = z;
-
-    // Если используем GPU, синхронизируем начальные векторы с устройством
-    std::size_t vec_bytes = static_cast<std::size_t>(local_NN) * sizeof(double);
-    if (use_gpu) {
-        cudaMemcpy(d_u, u.data(), vec_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_r, r.data(), vec_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_z, z.data(), vec_bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
-        cudaMemset(d_Ap, 0, vec_bytes);
-    }
 
     const int maxit = 100000;
-    const double bnorm = std::sqrt(std::max(1e-30, dot(F, F)));
+
+    // ||b|| считаем на CPU один раз (само решение и итерации — на GPU)
+    double local_b2 = 0.0;
+    for (int k = 0; k < local_NN; ++k) local_b2 += F[k] * F[k];
+    double global_b2 = 0.0;
+    MPI_Allreduce(&local_b2, &global_b2, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    const double bnorm = std::sqrt(std::max(1e-30, global_b2));
+
     const double tol = 1e-8;
     const double atol = tol * bnorm;
 
-    double rz_old = dot(r, z);
+    // PCG на GPU: вектора u/r/z/p/Ap постоянно живут на устройстве.
+    // На CPU копируем только:
+    //  - halo-строки для MPI (внутри exchange_halo_gpu),
+    //  - скаляры dot/нормы для MPI_Allreduce,
+    //  - финальный u для MPI_Gatherv/записи.
+    const int threads = 256;
+    const int blocks = (local_NN + threads - 1) / threads;
 
     double t0 = MPI_Wtime();
-    int it;
-    if (!use_gpu) {
-        // Оригинальный PCG на CPU
-        for (it = 0; it < maxit; ++it) {
-            matvec(p, Ap);
-            const double pAp = dot(p, Ap);
-            if (pAp <= 0.0) {
-                if (rank == 0) std::cerr << "Breakdown in PCG\n";
-                break;
-            }
 
-            const double alpha = rz_old / pAp;
+    // Инициализация PCG: z = M^{-1} r, p = z
+    {
+        double tk0 = MPI_Wtime();
+        precond_kernel<<<blocks, threads>>>(d_z, d_r, d_A_diag, local_NN);
+        cudaDeviceSynchronize();
+        double tk1 = MPI_Wtime();
+        time_kernel_vec += (tk1 - tk0);
 
-            for (int k = 0; k < local_NN; ++k) {
-                u[k] += alpha * p[k];
-                r[k] -= alpha * Ap[k];
-            }
-
-            const double rnorm = std::sqrt(dot(r, r));
-            if (rank == 0 && it % 50 == 0) {
-                std::cout << "iter=" << std::setw(6) << it
-                          << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
-                          << "  |r|=" << rnorm << "\n";
-            }
-            if (rnorm <= atol) {
-                if (rank == 0) {
-                    std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
-                }
-                break;
-            }
-
-            for (int k = 0; k < local_NN; ++k) {
-                z[k] = (A_diag[k] > 0.0 ? r[k] / A_diag[k] : r[k]);
-            }
-
-            const double rz_new = dot(r, z);
-            const double beta = rz_new / rz_old;
-
-            for (int k = 0; k < local_NN; ++k) {
-                p[k] = z[k] + beta * p[k];
-            }
-
-            rz_old = rz_new;
-        }
-    } else {
-        // PCG с использованием CUDA-ядер для векторных операций
-        int threads = 256;
-        int blocks = (local_NN + threads - 1) / threads;
-
-        for (it = 0; it < maxit; ++it) {
-            // matvec использует GPU-ядро и возвращает Ap на хосте
-            matvec(p, Ap);
-
-            const double pAp = dot(p, Ap);
-            if (pAp <= 0.0) {
-                if (rank == 0) std::cerr << "Breakdown in PCG (GPU path)\n";
-                break;
-            }
-
-            const double alpha = rz_old / pAp;
-
-            // Копируем текущие p и Ap на устройство и обновляем u, r на GPU
-            double t0 = MPI_Wtime(), t1;
-            cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
-            cudaMemcpy(d_Ap, Ap.data(), vec_bytes, cudaMemcpyHostToDevice);
-            t1 = MPI_Wtime();
-            time_h2d += (t1 - t0);
-
-            double tk0 = MPI_Wtime();
-            update_ur_kernel<<<blocks, threads>>>(d_u, d_r, d_p, d_Ap, alpha, local_NN);
-            cudaDeviceSynchronize();
-            double tk1 = MPI_Wtime();
-            time_kernel_vec += (tk1 - tk0);
-
-            // Копируем обновленные u и r обратно на хост для расчета норм и скалярных произведений
-            t0 = MPI_Wtime();
-            cudaMemcpy(u.data(), d_u, vec_bytes, cudaMemcpyDeviceToHost);
-            cudaMemcpy(r.data(), d_r, vec_bytes, cudaMemcpyDeviceToHost);
-            t1 = MPI_Wtime();
-            time_d2h += (t1 - t0);
-
-            const double rnorm = std::sqrt(dot(r, r));
-            if (rank == 0 && it % 50 == 0) {
-                std::cout << "iter=" << std::setw(6) << it
-                          << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
-                          << "  |r|=" << rnorm << "\n";
-            }
-            if (rnorm <= atol) {
-                if (rank == 0) {
-                    std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
-                }
-                break;
-            }
-
-            // Предобуславливание на GPU: z = r / A_diag
-            t0 = MPI_Wtime();
-            cudaMemcpy(d_r, r.data(), vec_bytes, cudaMemcpyHostToDevice);
-            t1 = MPI_Wtime();
-            time_h2d += (t1 - t0);
-
-            tk0 = MPI_Wtime();
-            precond_kernel<<<blocks, threads>>>(d_z, d_r, d_A_diag, local_NN);
-            cudaDeviceSynchronize();
-            tk1 = MPI_Wtime();
-            time_kernel_vec += (tk1 - tk0);
-
-            t0 = MPI_Wtime();
-            cudaMemcpy(z.data(), d_z, vec_bytes, cudaMemcpyDeviceToHost);
-            t1 = MPI_Wtime();
-            time_d2h += (t1 - t0);
-
-            const double rz_new = dot(r, z);
-            const double beta = rz_new / rz_old;
-
-            // Обновление направления p на GPU
-            t0 = MPI_Wtime();
-            cudaMemcpy(d_p, p.data(), vec_bytes, cudaMemcpyHostToDevice);
-            cudaMemcpy(d_z, z.data(), vec_bytes, cudaMemcpyHostToDevice);
-            t1 = MPI_Wtime();
-            time_h2d += (t1 - t0);
-
-            tk0 = MPI_Wtime();
-            update_p_kernel<<<blocks, threads>>>(d_p, d_z, beta, local_NN);
-            cudaDeviceSynchronize();
-            tk1 = MPI_Wtime();
-            time_kernel_vec += (tk1 - tk0);
-
-            t0 = MPI_Wtime();
-            cudaMemcpy(p.data(), d_p, vec_bytes, cudaMemcpyDeviceToHost);
-            t1 = MPI_Wtime();
-            time_d2h += (t1 - t0);
-
-            rz_old = rz_new;
-        }
+        cudaMemcpy(d_p, d_z, vec_bytes, cudaMemcpyDeviceToDevice);
     }
+
+    double rz_old = dot_gpu(d_r, d_z);
+
+    int it;
+    for (it = 0; it < maxit; ++it) {
+        // Ap = A*p (полностью на GPU)
+        matvec_gpu(d_p, d_Ap);
+
+        const double pAp = dot_gpu(d_p, d_Ap);
+        if (pAp <= 0.0) {
+            if (rank == 0) std::cerr << "Breakdown in PCG\n";
+            break;
+        }
+
+        const double alpha = rz_old / pAp;
+
+        double tk0 = MPI_Wtime();
+        update_ur_kernel<<<blocks, threads>>>(d_u, d_r, d_p, d_Ap, alpha, local_NN);
+        cudaDeviceSynchronize();
+        double tk1 = MPI_Wtime();
+        time_kernel_vec += (tk1 - tk0);
+
+        const double rnorm = std::sqrt(dot_gpu(d_r, d_r));
+        if (rank == 0 && it % 50 == 0) {
+            std::cout << "iter=" << std::setw(6) << it
+                      << "  |r|/|b|=" << std::setprecision(10) << (rnorm / bnorm)
+                      << "  |r|=" << rnorm << "\n";
+        }
+        if (rnorm <= atol) {
+            if (rank == 0) {
+                std::cout << "final |r|/|b|=" << (rnorm / bnorm) << "\n";
+            }
+            break;
+        }
+
+        // Предобуславливание на GPU: z = r / A_diag
+        tk0 = MPI_Wtime();
+        precond_kernel<<<blocks, threads>>>(d_z, d_r, d_A_diag, local_NN);
+        cudaDeviceSynchronize();
+        tk1 = MPI_Wtime();
+        time_kernel_vec += (tk1 - tk0);
+
+        const double rz_new = dot_gpu(d_r, d_z);
+        const double beta = rz_new / rz_old;
+
+        // Обновление направления p на GPU
+        tk0 = MPI_Wtime();
+        update_p_kernel<<<blocks, threads>>>(d_p, d_z, beta, local_NN);
+        cudaDeviceSynchronize();
+        tk1 = MPI_Wtime();
+        time_kernel_vec += (tk1 - tk0);
+
+        rz_old = rz_new;
+    }
+
+    // После завершения PCG копируем решение u с GPU на CPU один раз (для MPI_Gatherv и записи)
+    double tc0 = MPI_Wtime();
+    cudaMemcpy(u.data(), d_u, vec_bytes, cudaMemcpyDeviceToHost);
+    double tc1 = MPI_Wtime();
+    time_d2h += (tc1 - tc0);
     double t1 = MPI_Wtime();
 
     // Сводка по времени работы
@@ -720,8 +604,8 @@ int main(int argc, char** argv) {
         std::cout << "iterations: " << it << "\n";
     }
 
-    // Сбор статистики по GPU-времени (если использовался GPU)
-    if (use_gpu) {
+    // Сбор статистики по GPU-времени
+    {
         double max_comm_halo = 0.0, max_h2d = 0.0, max_d2h = 0.0;
         double max_k_matvec = 0.0, max_k_vec = 0.0;
 
@@ -793,19 +677,17 @@ int main(int argc, char** argv) {
     }
 
     // Освобождение ресурсов GPU
-    if (use_gpu) {
-        cudaFree(d_ax);
-        cudaFree(d_by);
-        cudaFree(d_A_diag);
-        cudaFree(d_F);
-        cudaFree(d_u);
-        cudaFree(d_r);
-        cudaFree(d_z);
-        cudaFree(d_p);
-        cudaFree(d_Ap);
-        cudaFree(d_recv_left);
-        cudaFree(d_recv_right);
-    }
+    cudaFree(d_ax);
+    cudaFree(d_by);
+    cudaFree(d_A_diag);
+    cudaFree(d_u);
+    cudaFree(d_r);
+    cudaFree(d_z);
+    cudaFree(d_p);
+    cudaFree(d_Ap);
+    cudaFree(d_recv_left);
+    cudaFree(d_recv_right);
+    cudaFree(d_dot_tmp);
 
     MPI_Finalize();
     return 0;
