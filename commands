@@ -26,6 +26,6 @@ mpirun --use-hwthread-cpus -np 6 ./sol3 400 600
 
 
 scp -i ~/.ssh/id_rsa_hpc "3. MPI + CUDA/solution3.cu" edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/solution3.cu
-scp -r -i ~/.ssh/id_rsa_hpc edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/log3 "3. MPI + CUDA/log3"
+scp -r -i ~/.ssh/id_rsa_hpc edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/log3 "3. MPI + CUDA"
 
 ssh edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru -i ~/.ssh/id_rsa_hpc
