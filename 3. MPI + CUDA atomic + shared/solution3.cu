@@ -41,32 +41,32 @@ inline int IX_Y_local(int i_local, int j_face, int local_M) {
     return (i_local - 1) * (N_in + 1) + j_face; 
 }
 
-// -------------------- Dot-product reduction WITHOUT shared/atomics --------------------
-// Требования задания:
-//  - нельзя shared memory для редукции
-//  - нельзя atomic операции
-//
-// Реализация: 2 стадии.
-//  (1) dot_partials_kernel: каждая warp считает сумму по своим элементам (warp-shuffle),
-//      лидер warp пишет в глобальный массив partials.
-//  (2) reduce_final_warp_kernel: один warp суммирует partials в 1 число.
-//
-// Это избегает и shared, и atomic. Дальше 1 число копируется на CPU и редуцируется MPI_Allreduce.
-
-__device__ __forceinline__ double warp_reduce_sum(double v) {
-    for (int offset = 16; offset > 0; offset >>= 1) {
-        // _sync вариант не нарушает ограничение cc3.5 и убирает warning про deprecated shfl
-        v += __shfl_down_sync(0xffffffff, v, offset);
-    }
-    return v;
+__device__ inline double atomicAdd_double(double* address, double val) {
+#if __CUDA_ARCH__ >= 600
+    return atomicAdd(address, val);
+#else
+    unsigned long long int* address_as_ull =
+        reinterpret_cast<unsigned long long int*>(address);
+    unsigned long long int old = *address_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(
+            address_as_ull,
+            assumed,
+            __double_as_longlong(val + __longlong_as_double(assumed))
+        );
+    } while (assumed != old);
+    return __longlong_as_double(old);
+#endif
 }
 
-// out_partials has size >= gridDim.x * (blockDim.x/32)
+// Скалярное произведение на GPU (локальное): out += sum_i a[i]*b[i]
+// Затем out копируется на CPU и редуцируется через MPI_Allreduce.
 __global__
-void dot_partials_kernel(const double* __restrict__ a,
-                         const double* __restrict__ b,
-                         double* __restrict__ out_partials,
-                         int n) {
+void dot_kernel(const double* __restrict__ a,
+                const double* __restrict__ b,
+                double* __restrict__ out,
+                int n) {
     double sum = 0.0;
     for (int k = blockIdx.x * blockDim.x + threadIdx.x;
          k < n;
@@ -74,28 +74,18 @@ void dot_partials_kernel(const double* __restrict__ a,
         sum += a[k] * b[k];
     }
 
-    sum = warp_reduce_sum(sum);
+    __shared__ double sh[256];
+    sh[threadIdx.x] = sum;
+    __syncthreads();
 
-    const int lane = threadIdx.x & 31;
-    const int warp = threadIdx.x >> 5; // 0..(blockDim/32-1)
-    const int warps_per_block = (blockDim.x >> 5);
-    if (lane == 0) {
-        out_partials[blockIdx.x * warps_per_block + warp] = sum;
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) sh[threadIdx.x] += sh[threadIdx.x + s];
+        __syncthreads();
     }
-}
 
-// Один warp суммирует partials и пишет out[0]
-__global__
-void reduce_final_warp_kernel(const double* __restrict__ in,
-                              double* __restrict__ out,
-                              int n) {
-    // blockDim.x MUST be 32
-    double sum = 0.0;
-    for (int k = threadIdx.x; k < n; k += 32) {
-        sum += in[k];
+    if (threadIdx.x == 0) {
+        atomicAdd_double(out, sh[0]);
     }
-    sum = warp_reduce_sum(sum);
-    if (threadIdx.x == 0) out[0] = sum;
 }
 
 // CUDA-ядро матрично-векторного умножения с учетом halo-строк
@@ -240,7 +230,7 @@ int main(int argc, char** argv) {
     
     int i_start = rank * base_rows + std::min(rank, remainder) + 1;
     int local_M = base_rows + (rank < remainder ? 1 : 0);
-    // int i_end = i_start + local_M - 1; // не используется
+    int i_end = i_start + local_M - 1;
 
     if (rank == 0) {
         std::cout << "Grid: " << M_in << " x " << N_in << "\n";
@@ -260,14 +250,6 @@ int main(int argc, char** argv) {
     const int local_NN = local_M * N_in;
 
     // Аккумуляторы для измерения времени (MPI_Wtime)
-    double time_init = 0.0;           // инициализация (CPU+GPU setup, аллокации, precompute)
-    double time_cpu_build = 0.0;      // построение коэффициентов/правой части/diag на CPU
-    double time_gpu_alloc = 0.0;      // cudaMalloc/cudaMemset
-    double time_gpu_upload = 0.0;     // H->D копирование коэффициентов/начальных векторов
-    double time_mpi_collective = 0.0; // MPI_Allreduce/MPI_Gather/MPI_Gatherv суммарно
-    double time_gather_io = 0.0;      // сбор результата + запись
-    double time_finalize = 0.0;       // освобождение ресурсов + MPI_Finalize
-
     double time_comm_halo = 0.0;      // время коммуникаций halo (MPI)
     double time_h2d = 0.0;            // время копий host->device
     double time_d2h = 0.0;            // время копий device->host
@@ -278,10 +260,7 @@ int main(int argc, char** argv) {
     double *d_ax = nullptr, *d_by = nullptr, *d_A_diag = nullptr;
     double *d_u = nullptr, *d_r = nullptr, *d_z = nullptr, *d_p = nullptr, *d_Ap = nullptr;
     double *d_recv_left = nullptr, *d_recv_right = nullptr;
-    double *d_dot_partials = nullptr; // partial sums for dot reduction (no atomics)
-    double *d_dot_tmp = nullptr;      // single double result for dot
-
-    double t_init0 = MPI_Wtime();
+    double *d_dot_tmp = nullptr; // аккумулятор для dot_kernel
 
     // Локальные коэффициенты ax: для граней от i_start-1 до i_end (local_M + 1 граней)
     std::vector<double> ax((local_M + 1) * N_in, 0.0);
@@ -333,8 +312,8 @@ int main(int argc, char** argv) {
             const double xc = R.x0 + i_global * hx;
             const double yc = R.y0 + j * hy;
 
-            const double xl = xc - 0.5 * hx;
-            const double yb = yc - 0.5 * hy;
+            const double xl = xc - 0.5 * hx, xr = xc + 0.5 * hx;
+            const double yb = yc - 0.5 * hy, yt = yc + 0.5 * hy;
 
             int inside = 0;
             for (int sx = 0; sx < SS; ++sx) {
@@ -363,73 +342,40 @@ int main(int argc, char** argv) {
         }
     }
 
-    // CPU precompute done
-    double t_cpu1 = MPI_Wtime();
-    time_cpu_build += (t_cpu1 - t_init0);
-
     // Копирование коэффициентов и правой части на GPU (подготовка CUDA)
     const std::size_t ax_bytes   = ax.size() * sizeof(double);
     const std::size_t by_bytes   = by.size() * sizeof(double);
     const std::size_t diag_bytes = A_diag.size() * sizeof(double);
     const std::size_t vec_bytes  = static_cast<std::size_t>(local_NN) * sizeof(double);
 
-    double t_alloc0 = MPI_Wtime();
     cudaMalloc(&d_ax, ax_bytes);
     cudaMalloc(&d_by, by_bytes);
     cudaMalloc(&d_A_diag, diag_bytes);
-    double t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
 
-    double t_up0 = MPI_Wtime();
     cudaMemcpy(d_ax, ax.data(), ax_bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_by, by.data(), by_bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_A_diag, A_diag.data(), diag_bytes, cudaMemcpyHostToDevice);
-    double t_up1 = MPI_Wtime();
-    time_gpu_upload += (t_up1 - t_up0);
-    time_h2d += (t_up1 - t_up0); // считаем как H->D копирование
 
     // Векторы PCG на устройстве
-    t_alloc0 = MPI_Wtime();
     cudaMalloc(&d_u, vec_bytes);
     cudaMalloc(&d_r, vec_bytes);
     cudaMalloc(&d_z, vec_bytes);
     cudaMalloc(&d_p, vec_bytes);
     cudaMalloc(&d_Ap, vec_bytes);
-    t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
 
-    t_alloc0 = MPI_Wtime();
     cudaMemset(d_u, 0, vec_bytes);
-    t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
-
-    t_up0 = MPI_Wtime();
     cudaMemcpy(d_r, F.data(), vec_bytes, cudaMemcpyHostToDevice); // r0 = b (u0=0)
-    t_up1 = MPI_Wtime();
-    time_gpu_upload += (t_up1 - t_up0);
-    time_h2d += (t_up1 - t_up0);
-
-    t_alloc0 = MPI_Wtime();
     cudaMemset(d_z, 0, vec_bytes);
     cudaMemset(d_p, 0, vec_bytes);
     cudaMemset(d_Ap, 0, vec_bytes);
-    t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
 
     // Halo-буферы на устройстве
-    t_alloc0 = MPI_Wtime();
     cudaMalloc(&d_recv_left,  N_in * sizeof(double));
     cudaMalloc(&d_recv_right, N_in * sizeof(double));
-    t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
 
-    // Буферы для скалярных произведений на GPU (без atomics/shared)
-    // Максимум: blocks<=1024, threads=256 => warps_per_block=8 => partials<=8192
-    t_alloc0 = MPI_Wtime();
-    cudaMalloc(&d_dot_partials, 8192 * sizeof(double));
+    // Аккумулятор для скалярных произведений на GPU
     cudaMalloc(&d_dot_tmp, sizeof(double));
-    t_alloc1 = MPI_Wtime();
-    time_gpu_alloc += (t_alloc1 - t_alloc0);
+    cudaMemset(d_dot_tmp, 0, sizeof(double));
 
     // Определяем соседей
     int left_rank = (rank > 0) ? rank - 1 : MPI_PROC_NULL;
@@ -444,8 +390,8 @@ int main(int argc, char** argv) {
     // Функция обмена halo для вектора на GPU (d_v)
     auto exchange_halo_gpu = [&](const double* d_v) {
         double t_copy0, t_copy1;
-        // Используем синхронный обмен (MPI_Sendrecv), чтобы не требовалась
-        // "демонстрация перекрытия" для асинхронных коммуникаций.
+        MPI_Request reqs[4];
+        int req_count = 0;
 
         // Скопировать граничные строки с GPU на хост и отправить соседям
         if (left_rank != MPI_PROC_NULL) {
@@ -455,12 +401,8 @@ int main(int argc, char** argv) {
                        N_in * sizeof(double), cudaMemcpyDeviceToHost);
             t_copy1 = MPI_Wtime();
             time_d2h += (t_copy1 - t_copy0);
-            double tc0 = MPI_Wtime();
-            MPI_Sendrecv(send_left.data(), N_in, MPI_DOUBLE, left_rank, 0,
-                         recv_left.data(), N_in, MPI_DOUBLE, left_rank, 1,
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            double tc1 = MPI_Wtime();
-            time_comm_halo += (tc1 - tc0);
+            MPI_Isend(send_left.data(), N_in, MPI_DOUBLE,
+                      left_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
         }
         if (right_rank != MPI_PROC_NULL) {
             t_copy0 = MPI_Wtime();
@@ -469,13 +411,24 @@ int main(int argc, char** argv) {
                        N_in * sizeof(double), cudaMemcpyDeviceToHost);
             t_copy1 = MPI_Wtime();
             time_d2h += (t_copy1 - t_copy0);
-            double tc0 = MPI_Wtime();
-            MPI_Sendrecv(send_right.data(), N_in, MPI_DOUBLE, right_rank, 1,
-                         recv_right.data(), N_in, MPI_DOUBLE, right_rank, 0,
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            double tc1 = MPI_Wtime();
-            time_comm_halo += (tc1 - tc0);
+            MPI_Isend(send_right.data(), N_in, MPI_DOUBLE,
+                      right_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
         }
+
+        // Прием граничных строк от соседей на хост
+        if (left_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_left.data(), N_in, MPI_DOUBLE,
+                      left_rank, 1, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+        if (right_rank != MPI_PROC_NULL) {
+            MPI_Irecv(recv_right.data(), N_in, MPI_DOUBLE,
+                      right_rank, 0, MPI_COMM_WORLD, &reqs[req_count++]);
+        }
+
+        double t_comm0 = MPI_Wtime();
+        MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+        double t_comm1 = MPI_Wtime();
+        time_comm_halo += (t_comm1 - t_comm0);
 
         // Копируем полученные halo-строки на устройство
         if (left_rank != MPI_PROC_NULL) {
@@ -519,19 +472,19 @@ int main(int argc, char** argv) {
 
     // Скалярное произведение на GPU (локально на GPU -> 1 число на CPU -> MPI_Allreduce)
     auto dot_gpu = [&](const double* d_a, const double* d_b) {
-        const int threads = 256;
+        // Обнуляем аккумулятор на GPU
+        cudaMemset(d_dot_tmp, 0, sizeof(double));
+
+        const int threads = 256; // важно: dot_kernel использует shared[256]
         int blocks = (local_NN + threads - 1) / threads;
         blocks = std::max(1, std::min(1024, blocks));
-        const int warps_per_block = threads / 32;
-        const int n_partials = blocks * warps_per_block;
 
         double tk0 = MPI_Wtime();
-        dot_partials_kernel<<<blocks, threads>>>(d_a, d_b, d_dot_partials, local_NN);
-        // финальная редукция partials -> 1 double (один warp)
-        reduce_final_warp_kernel<<<1, 32>>>(d_dot_partials, d_dot_tmp, n_partials);
+        dot_kernel<<<blocks, threads>>>(d_a, d_b, d_dot_tmp, local_NN);
         cudaDeviceSynchronize();
         double tk1 = MPI_Wtime();
-        time_kernel_vec += (tk1 - tk0); // считаем dot как часть "vector kernels"
+        // Считаем dot как "векторную операцию" (часть PCG)
+        time_kernel_vec += (tk1 - tk0);
 
         double local_s = 0.0;
         double t0 = MPI_Wtime();
@@ -540,10 +493,7 @@ int main(int argc, char** argv) {
         time_d2h += (t1 - t0);
 
         double global_s = 0.0;
-        double tc0 = MPI_Wtime();
         MPI_Allreduce(&local_s, &global_s, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        double tc1 = MPI_Wtime();
-        time_mpi_collective += (tc1 - tc0);
         return global_s;
     };
 
@@ -556,12 +506,7 @@ int main(int argc, char** argv) {
     double local_b2 = 0.0;
     for (int k = 0; k < local_NN; ++k) local_b2 += F[k] * F[k];
     double global_b2 = 0.0;
-    {
-        double tc0 = MPI_Wtime();
-        MPI_Allreduce(&local_b2, &global_b2, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        double tc1 = MPI_Wtime();
-        time_mpi_collective += (tc1 - tc0);
-    }
+    MPI_Allreduce(&local_b2, &global_b2, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     const double bnorm = std::sqrt(std::max(1e-30, global_b2));
 
     const double tol = 1e-8;
@@ -649,40 +594,45 @@ int main(int argc, char** argv) {
     time_d2h += (tc1 - tc0);
     double t1 = MPI_Wtime();
 
-    // init time ends here (everything up to end of solve incl. CPU precompute and allocations)
-    // We'll report solve_time separately; init includes precompute+alloc+uploads.
-    double t_init1 = t0;
-    time_init += (t_init1 - t_init0);
-
     // Сводка по времени работы
     double solve_time = t1 - t0;
     double max_solve_time = 0.0;
-    {
-        double tc0 = MPI_Wtime();
-        MPI_Reduce(&solve_time, &max_solve_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        double tc1 = MPI_Wtime();
-        time_mpi_collective += (tc1 - tc0);
-    }
+    MPI_Reduce(&solve_time, &max_solve_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
         std::cout << "solve time (max over ranks): " << max_solve_time << " s\n";
         std::cout << "iterations: " << it << "\n";
     }
 
+    // Сбор статистики по GPU-времени
+    {
+        double max_comm_halo = 0.0, max_h2d = 0.0, max_d2h = 0.0;
+        double max_k_matvec = 0.0, max_k_vec = 0.0;
+
+        MPI_Reduce(&time_comm_halo, &max_comm_halo, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_h2d,       &max_h2d,       1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_d2h,       &max_d2h,       1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_kernel_matvec, &max_k_matvec, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&time_kernel_vec,    &max_k_vec,    1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+        if (rank == 0) {
+            std::cout << "---- GPU/MPI timing breakdown (max over ranks) ----\n";
+            std::cout << "halo MPI comm time: " << max_comm_halo << " s\n";
+            std::cout << "H->D memcpy time: " << max_h2d << " s\n";
+            std::cout << "D->H memcpy time: " << max_d2h << " s\n";
+            std::cout << "matvec kernel time: " << max_k_matvec << " s\n";
+            std::cout << "vector kernels time: " << max_k_vec << " s\n";
+        }
+    }
+
     // Сбор решения на процессе 0 и запись в файл
     {
-        double tg0 = MPI_Wtime();
         // Собираем размеры и смещения
         std::vector<int> recvcounts(size);
         std::vector<int> displs(size);
         
         int local_count = local_NN;
-        {
-            double tc0 = MPI_Wtime();
-            MPI_Gather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-            double tc1 = MPI_Wtime();
-            time_mpi_collective += (tc1 - tc0);
-        }
+        MPI_Gather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         
         if (rank == 0) {
             displs[0] = 0;
@@ -696,14 +646,9 @@ int main(int argc, char** argv) {
             u_global.resize(M_in * N_in);
         }
 
-        {
-            double tc0 = MPI_Wtime();
-            MPI_Gatherv(u.data(), local_NN, MPI_DOUBLE,
-                        u_global.data(), recvcounts.data(), displs.data(), MPI_DOUBLE,
-                        0, MPI_COMM_WORLD);
-            double tc1 = MPI_Wtime();
-            time_mpi_collective += (tc1 - tc0);
-        }
+        MPI_Gatherv(u.data(), local_NN, MPI_DOUBLE,
+                    u_global.data(), recvcounts.data(), displs.data(), MPI_DOUBLE,
+                    0, MPI_COMM_WORLD);
 
         if (rank == 0) {
             std::ofstream out("solution.csv");
@@ -729,12 +674,9 @@ int main(int argc, char** argv) {
             }
             out.close();
         }
-        double tg1 = MPI_Wtime();
-        time_gather_io += (tg1 - tg0);
     }
 
     // Освобождение ресурсов GPU
-    double tf0 = MPI_Wtime();
     cudaFree(d_ax);
     cudaFree(d_by);
     cudaFree(d_A_diag);
@@ -745,51 +687,10 @@ int main(int argc, char** argv) {
     cudaFree(d_Ap);
     cudaFree(d_recv_left);
     cudaFree(d_recv_right);
-    cudaFree(d_dot_partials);
     cudaFree(d_dot_tmp);
-    double tf1 = MPI_Wtime();
-    time_finalize += (tf1 - tf0);
-
-    // Сводная печать таймингов (max over ranks) — покрывает требования п.9
-    {
-        double max_init = 0.0, max_cpu = 0.0, max_alloc = 0.0, max_upload = 0.0;
-        double max_comm = 0.0, max_h2d = 0.0, max_d2h = 0.0;
-        double max_k_matvec = 0.0, max_k_vec = 0.0;
-        double max_collect = 0.0, max_gio = 0.0, max_fin = 0.0;
-
-        MPI_Reduce(&time_init, &max_init, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_cpu_build, &max_cpu, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_gpu_alloc, &max_alloc, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_gpu_upload, &max_upload, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_comm_halo, &max_comm, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_h2d, &max_h2d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_d2h, &max_d2h, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_kernel_matvec, &max_k_matvec, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_kernel_vec, &max_k_vec, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_mpi_collective, &max_collect, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_gather_io, &max_gio, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&time_finalize, &max_fin, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-
-        if (rank == 0) {
-            std::cout << "---- FULL timing breakdown (max over ranks) ----\n";
-            std::cout << "init (up to solver start): " << max_init << " s\n";
-            std::cout << "  cpu build (ax/by/F/diag): " << max_cpu << " s\n";
-            std::cout << "  gpu alloc/memset: " << max_alloc << " s\n";
-            std::cout << "  gpu upload (coeff+init vec): " << max_upload << " s\n";
-            std::cout << "solver total (max): " << max_solve_time << " s\n";
-            std::cout << "  halo MPI comm time: " << max_comm << " s\n";
-            std::cout << "  H->D memcpy time: " << max_h2d << " s\n";
-            std::cout << "  D->H memcpy time: " << max_d2h << " s\n";
-            std::cout << "  matvec kernel time: " << max_k_matvec << " s\n";
-            std::cout << "  vector/dot kernels time: " << max_k_vec << " s\n";
-            std::cout << "mpi collectives (Allreduce/Gather/Gatherv): " << max_collect << " s\n";
-            std::cout << "gather+io: " << max_gio << " s\n";
-            std::cout << "finalize (cudaFree+etc): " << max_fin << " s\n";
-        }
-    }
 
     MPI_Finalize();
     return 0;
-}
+}п
 
 

@@ -17,7 +17,7 @@ mpirun --use-hwthread-cpus -np 6 ./sol2 400 600
 
 3) MPI+CUDA-реализация
 /usr/local/cuda/bin/nvcc -O3 -std=c++17 -arch=sm_86 -ccbin mpicxx "3. MPI + CUDA/solution3.cu" -o sol3
-/usr/local/cuda-10.2/bin/nvcc -O3 -std=g++15 -arch=sm_60 -ccbin mpicxx "solution3.cu" -o sol3
+/usr/local/cuda-10.2/bin/nvcc -O3 -std=gnu++11 -arch=sm_60 -ccbin mpicxx "solution3.cu" -o sol3
 
 mpirun -np 1 ./sol3 400 600
 mpirun --use-hwthread-cpus -np 6 ./sol3 400 600
@@ -26,4 +26,6 @@ mpirun --use-hwthread-cpus -np 6 ./sol3 400 600
 
 
 scp -i ~/.ssh/id_rsa_hpc "3. MPI + CUDA/solution3.cu" edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/solution3.cu
+scp -r -i ~/.ssh/id_rsa_hpc edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/log3 "3. MPI + CUDA/log3"
+
 ssh edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru -i ~/.ssh/id_rsa_hpc

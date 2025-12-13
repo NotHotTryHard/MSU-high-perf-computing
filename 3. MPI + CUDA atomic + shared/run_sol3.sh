@@ -10,8 +10,9 @@ LOG_DIR="log3${SUFFIX}"
 LAUNCH_DIR="launches3${SUFFIX}"
 
 # Загружаем модули и компилируем
-module load openmpi
 module load pgi
+module load openmpi
+module load cuda/9.1
 export OMPI_CXX=g++
 
 # Компиляция
