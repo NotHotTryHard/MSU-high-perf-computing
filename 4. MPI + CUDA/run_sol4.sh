@@ -47,6 +47,7 @@ for pair in "${GRIDS[@]}"; do
 
     echo "#BSUB -J sol3_p${p}_${N}x${M}${SUFFIX}"       >  "$out"
     echo "#BSUB -n ${p} -q normal"                      >> "$out"
+    echo "#BSUB -x"                                     >> "$out"
     echo "#BSUB -W ${WTIME}"                            >> "$out"
     echo "#BSUB -o ./${LOG_DIR}/${N}x${M}-p${p}.out"    >> "$out"
     echo "#BSUB -e ./${LOG_DIR}/${N}x${M}-p${p}.err"    >> "$out"
