@@ -6,8 +6,8 @@
 # Если передан (например, "_run1"), папки будут log3_run1 и launches3_run1
 
 SUFFIX="${1:-}"
-LOG_DIR="log3${SUFFIX}"
-LAUNCH_DIR="launches3${SUFFIX}"
+LOG_DIR="log4${SUFFIX}"
+LAUNCH_DIR="launches4${SUFFIX}"
 
 # Загружаем модули и компилируем
 module load openmpi
@@ -15,7 +15,7 @@ module load pgi
 export OMPI_CXX=g++
 
 # Компиляция
-nvcc -O3 -std=gnu++11 -arch=sm_60 -ccbin mpicxx solution3.cu -o sol3
+nvcc -O3 -std=gnu++11 -arch=sm_60 -ccbin mpicxx solution4.cu -o sol4
 
 mkdir -p "$LAUNCH_DIR"
 mkdir -p "$LOG_DIR"
@@ -43,9 +43,9 @@ for pair in "${GRIDS[@]}"; do
   fi
 
   for p in 1 2 3 4 6; do
-    out="./${LAUNCH_DIR}/sol3_${N}x${M}_p${p}.lsf"
+    out="./${LAUNCH_DIR}/sol4_${N}x${M}_p${p}.lsf"
 
-    echo "#BSUB -J sol3_p${p}_${N}x${M}${SUFFIX}"       >  "$out"
+    echo "#BSUB -J sol4_p${p}_${N}x${M}${SUFFIX}"       >  "$out"
     echo "#BSUB -n ${p} -q normal"                      >> "$out"
     echo "#BSUB -x"                                     >> "$out"
     echo "#BSUB -W ${WTIME}"                            >> "$out"
@@ -60,7 +60,7 @@ for pair in "${GRIDS[@]}"; do
         echo "#BSUB -gpu \"num=2:mode=exclusive_process\""  >> "$out"
     fi
 
-    echo "mpirun -np ${p} ./sol3 ${N} ${M}"             >> "$out"
+    echo "mpirun -np ${p} ./sol4 ${N} ${M}"             >> "$out"
 
     bsub < "$out"
   done

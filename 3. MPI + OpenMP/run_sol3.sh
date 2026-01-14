@@ -10,11 +10,11 @@ LOG_DIR="log3${SUFFIX}"
 LAUNCH_DIR="launches3${SUFFIX}"
 
 # Загружаем модули и компилируем
-module load openmpi
-export OMPI_CXX=g++
+module load SpectrumMPI
+export OMPI_CXX=mpicxx
 
 # Компиляция MPI + OpenMP
-mpic++ -O3 -std=c++11 -fopenmp solution3.cpp -o sol3
+#mpicxx -O3 -fopenmp -std=c++11 solution3.cpp -o sol3
 
 mkdir -p "$LAUNCH_DIR"
 mkdir -p "$LOG_DIR"

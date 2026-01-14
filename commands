@@ -29,3 +29,6 @@ scp -i ~/.ssh/id_rsa_hpc "3. MPI + CUDA/solution3.cu" edu-cmc-skmodel25-616-10@p
 scp -r -i ~/.ssh/id_rsa_hpc edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru:~/log3 "3. MPI + CUDA"
 
 ssh edu-cmc-skmodel25-616-10@polus.hpc.cs.msu.ru -i ~/.ssh/id_rsa_hpc
+
+
+bsub -J sol4_p1_10x10 -n 1 -q normal -x -W 00:05 -o ./log4/10x10-p1.out -e ./log4/10x10-p1.err -R "span[hosts=1]" -gpu "num=1:mode=exclusive_process" mpirun -np 1 ./sol4 10 10
